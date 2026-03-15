@@ -1,78 +1,74 @@
 import numpy as np
-from tenpy import models
 from tenpy.networks.mps import MPS
-import numpy as np
-from tenpy.networks.mpo import MPOEnvironment
 from tenpy.networks.mpo import MPO
+from tqdm import tqdm
 
-def get_moments_brute_force(model:models, psi_i:MPS, h1:float):
+def estimate_hamiltonian_moments(
+        psi:MPS,
+        H:MPO,
+        N_s:int
+        ) -> tuple[float, float, float] :
     """
-    Runs DMRG for the Transverse Field Ising Model and computes 
-    <H>, <H^2>, and <H^3>.
+    Estimates the 1st, 2nd, and 3rd actual moments of the Hamiltonian H
+    using perfect independent sampling from a given MPS psi.
+    
+    Parameters
+    ----------
+    psi : tenpy.networks.mps.MPS
+        The matrix product state to sample from.
+    H : tenpy.networks.mpo.MPO
+        The Hamiltonian as a matrix product operator.
+    N_s : int
+        The number of samples to generate.
+        
+    Returns
+    -------
+    tuple
+        Estimated actual moments (M_1, M_2, M_3)
     """
 
-
-    # 5. Calculate <H^2>
-    # MPO.variance calculates <H^2> - <H>^2
-    variance = model.H_MPO.variance(psi_i)
-    h2 = variance + (h1 ** 2)
-
-    # 6. Calculate <H^3>
-    # Apply H to psi to obtain a new state |phi> = H |psi>
-    phi = psi_i.copy()
-    model.H_MPO.apply_naively(phi) 
+    # Prepare exact representations of H|psi>, H^2|psi>, and H^3|psi>.
+    # MPO.apply_naively(state) modifies the state in place without compression.
+    # This guarantees the local energies remain mathematically exact, avoiding 
+    # truncation bias in the numerator overlaps.
+    psi_1 = psi.copy()
+    H.apply_naively(psi_1)
     
-    # <psi | H^3 | psi> is equivalent to <phi | H | phi>
-    # MPO.expectation_value(phi) returns <phi|H|phi> / <phi|phi>
-    # phi.norm() returns the scalar norm sqrt(<phi|phi>)
-    h3 = model.H_MPO.expectation_value(phi) * (phi.norm ** 2)
-
-    return h2, h3
-
-def estimate_hamiltonian_moments(psi:MPS, mpo_H:MPO, num_samples=1000):
-    h1_estimates = []
-    h2_estimates = []
-    h3_estimates = []
+    psi_2 = psi_1.copy()
+    H.apply_naively(psi_2)
     
-    sites = psi.sites
+    # Pre-allocate arrays for the n-th order local energies
+    local_energies_1 = np.zeros(N_s, dtype=complex)
+    local_energies_2 = np.zeros(N_s, dtype=complex)
     
-    for _ in range(num_samples):
-        # Pass complex_amplitude=True to get the exact overlap <s|psi>
-        sigmas, _ = psi.sample_measurements(complex_amplitude=True)
-        mps_s = MPS.from_product_state(sites, sigmas, bc=psi.bc)
+    for i in tqdm(range(N_s), desc="Sampling"):
+        # Sample a basis product state |s> from the MPS.
+        sample_data = psi.sample_measurements()
+        prod_state = sample_data[0] if isinstance(sample_data, tuple) else sample_data
 
-
-        # If the overlap is identically zero, the state is physically impossible
-        overlap_s = mps_s.overlap(psi)
-        if overlap_s == 0.0:
+        # Construct the product state MPS for the sampled configuration
+        s_mps = MPS.from_product_state(psi.sites, prod_state, bc=psi.bc)
+        
+        # Calculate overlaps via standard tensor contractions
+        # Note: s_mps.overlap(ket) computes the inner product <s|ket>
+        overlap_0 = s_mps.overlap(psi)   # <s|psi>
+        overlap_1 = s_mps.overlap(psi_1) # <s|H|psi>
+        overlap_2 = s_mps.overlap(psi_2) # <s|H^2|psi>
+        
+        # Skip states with zero probability to avoid division by zero
+        # (Though perfect sampling theoretically precludes this)
+        if np.isclose(overlap_0, 0.0):
             continue
             
-        mps_H1_s = mps_s.copy()  # Make a copy to avoid in-place modifications
-        mps_H2_s = mps_s.copy()  # Make a copy to avoid in-place modifications
-        mps_H3_s = mps_s.copy()  # Make a copy to avoid in-place modifications
+        # Compute n-th order local energies 
+        local_energies_1[i] = overlap_1 / overlap_0 # <s|H|psi> / <s|psi>
+        local_energies_2[i] = overlap_2 / overlap_0 # <s|H^2|psi> / <s|psi>
+        # Note: We do not compute local_energies_3 directly since it would require H^3|psi>.
 
-        mpo_H.apply_naively(mps_H1_s) 
-
-        mpo_H.apply_naively(mps_H2_s)
-        mpo_H.apply_naively(mps_H2_s)    
-   
-        mpo_H.apply_naively(mps_H3_s)  
-        mpo_H.apply_naively(mps_H3_s)  
-        mpo_H.apply_naively(mps_H3_s)
-        
-        num_1 = np.conj(psi.overlap(mps_H1_s))
-        num_2 = np.conj(psi.overlap(mps_H2_s))
-        num_3 = np.conj(psi.overlap(mps_H3_s))
-
-        # print(f'<s|H|psi> = {num_1}, <s|H^2|psi> = {num_2}, <s|H^3|psi> = {num_3}, <s|psi> = {overlap_s}')
-        
-        # Calculate local moments using the natively returned overlap
-        e1_local = num_1 / overlap_s
-        e2_local = num_2 / overlap_s
-        e3_local = num_3 / overlap_s
-        
-        h1_estimates.append(e1_local)
-        h2_estimates.append(e2_local)
-        h3_estimates.append(e3_local)
-        
-    return np.real(np.mean(h1_estimates)), np.real(np.mean(h2_estimates)), np.real(np.mean(h3_estimates))
+    # The unbiased estimators are the sample means of the local energies
+    M_1 = np.mean(local_energies_1) # E[<s|H|psi> / <s|psi>] \approx <psi|H|psi> / <psi|psi>
+    M_2 = np.mean(np.conjugate(local_energies_1) * local_energies_1)  # E[|<s|H|psi>|^2] \approx <psi|H^2|psi> / <psi|psi>
+    M_3 = np.mean(np.conjugate(local_energies_1) * local_energies_2)  # E[<s|H|psi>* * <s|H^2|psi>] = E[<s|H|psi>^* <s|H^2|psi>] \approx <psi|H^3|psi> / <psi|psi>
+    
+    # Return purely real components since H is Hermitian
+    return np.real(M_1), np.real(M_2), np.real(M_3)
