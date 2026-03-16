@@ -1,12 +1,5 @@
 import numpy as np
 from scipy.linalg import eigh
-from tenpy.networks.mps import MPS
-from tenpy.networks.mpo import MPO
-from tenpy.algorithms import dmrg
-import matplotlib.pyplot as plt
-
-import numpy as np
-from scipy.linalg import eigh
 
 def optimize_lanczos_step(
         h1: float,
@@ -25,10 +18,9 @@ def optimize_lanczos_step(
         # Force the variance to be at least epsilon
         # This redefines the second moment h2
         h2_reg = h1**2 + epsilon
-        print(f'Variance too small: {variance:.2e}, regularized to {epsilon:.2e}.')
+        print(f'Energy variance too small: {variance:.2e}, regularized to {epsilon:.2e}.')
     else:
         h2_reg = h2
-        print(f'Variance is sufficient: {variance:.2e}, no regularization needed.')
         
     # Construct the regularized overlap matrix S
     S = np.array([
@@ -46,9 +38,6 @@ def optimize_lanczos_step(
     
     # Solve the generalized eigenvalue problem H_sub c = E S c
     evals, evecs = eigh(H_sub, S)
-
-    print(f'Generalized eigenvalues: {evals}')
-    print(f'Generalized eigenvectors:\n{evecs}')
     
     # Extract the ground state (lowest eigenvalue)
     min_idx = np.argmin(evals)
@@ -61,6 +50,5 @@ def optimize_lanczos_step(
         print('Warning: c_1 is very close to zero, alpha is set to infinity.')
     else:
         alpha_opt = c_opt[1] / c_opt[0]
-        print(f'c_1 is far enough from zero: c_1 = {c_opt[0]:.2e}, alpha = {alpha_opt:.6f}')
 
     return E_opt, alpha_opt
