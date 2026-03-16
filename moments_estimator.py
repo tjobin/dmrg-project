@@ -8,6 +8,7 @@ def estimate_hamiltonian_moments(
         psi: MPS,
         H: MPO,
         N_s: int,
+        atol: float = 1e-10,
         seed: int = None,
         filename: str = None
         ) -> tuple[float, float, float] :
@@ -15,20 +16,20 @@ def estimate_hamiltonian_moments(
     Estimates the 1st, 2nd, and 3rd actual moments of the Hamiltonian H
     using perfect independent sampling from a given MPS psi.
     
-    Parameters
-    ----------
-    psi : tenpy.networks.mps.MPS
-        The matrix product state to sample from.
-    H : tenpy.networks.mpo.MPO
-        The Hamiltonian as a matrix product operator.
-    N_s : int
-        The number of samples to generate.
+    Args:
+        psi : tenpy.networks.mps.MPS, the matrix product state to sample from.
+        H : tenpy.networks.mpo.MPO, the Hamiltonian as a matrix product operator.
+        N_s : int, number of samples to generate.
+        atol : float, absolute tolerance for numerical stability checks, by default 1e-10.
+        seed : int, random seed for reproducibility, by default None.
+        filename : str, the function will write detailed sample information to 'out/{filename}.out',
         
-    Returns
-    -------
-    tuple
-        Estimated actual moments (M_1, M_2, M_3)
+    Returns:
+        M1: float, the estimated first moment <psi|H|psi> / <psi|psi>.
+        M2: float, the estimated second moment <psi|H^2|psi> / <psi|psi>.
+        M3: float, the estimated third moment <psi|H^3|psi> / <psi|psi>.
     """
+    
     rng = np.random.default_rng(seed)  # Create a random number generator with the given seed for reproducibility
     if filename is not None:
         fout = open(f'out/{filename}.out','w')
@@ -65,7 +66,7 @@ def estimate_hamiltonian_moments(
         
         # Skip states with zero probability to avoid division by zero
         # (Though perfect sampling theoretically precludes this)
-        if np.isclose(overlap_0, 0.0, atol=1e-3):
+        if np.isclose(overlap_0, 0.0, atol=atol):
             print(f'Warning: Sampled state has exceedingly small overlap with psi, skipping sample {i}.')
             continue
             
