@@ -10,33 +10,10 @@ from _plot import plot_E_vs_chi
 from modified_DMRG import ExactStateDMRGEngine
 from tenpy.algorithms.exact_diag import ExactDiag
 
-## Parameters for the TFI model
-Nsites = 200
-J = 1.0
-g = 1.0
-
-# model_params = {
-#     'L': Nsites,
-#     'J': J,
-#     'g': g,
-#     'bc_MPS': 'finite',
-#     'conserve': 'parity',
-# }
-
-model_params = {
-    "L": 20,              # Number of sites in the 1D chain
-    "t": 1.0,             # Hopping amplitude
-    "U": 4.0,             # On-site repulsive interaction
-    "mu": 0.0,            # Chemical potential
-    "n_max": 5,           # Maximum number of bosons allowed per site (local Hilbert space cutoff)
-    "conserve": None,      # Conserve total particle number 'N' (can also be 'None' or 'parity')
-    "bc_MPS": "finite",   # Boundary conditions for the MPS
-}
-
 model_params = {
         "lattice": "Square",
-        "Lx": 20,             # Number of sites along the cylinder length
-        "Ly": 10,             # Circumference of the cylinder (number of sites)
+        "Lx": 5,             # Number of sites along the cylinder length
+        "Ly": 2,             # Circumference of the cylinder (number of sites)
         "bc_MPS": "finite",   # Finite MPS (open boundaries for the 1D path)
         "bc_y": "cylinder",   # Periodic boundary conditions in the y-direction
         "bc_x": "open",       # Open boundary conditions in the x-direction
@@ -44,42 +21,18 @@ model_params = {
         "U": 4.0,               # On-site Coulomb repulsion
         "mu": 0.0,             # Chemical potential
         "cons_N": "N",        # Conserve total particle number U(1)
-        "cons_Sz": "Sz",      # Conserve total spin Z U(1)
+        # "cons_Sz": "Sz",      # Conserve total spin Z U(1)
     }
 
 model = BoseHubbardModel(model_params)
-
-## Create the TFI model
-# model = TFIChain(model_params)
+H_mpo = model.H_MPO
 
 ## Create an initial MPS in the product state |up up up ...>
 product_state = [1] * model.lat.N_sites
 psi = MPS.from_product_state(model.lat.mps_sites(), product_state, bc=model.lat.bc_MPS)
 
-# initial_state = [4] + [0] * (model.lat.N_sites - 1)  # A state with 5 bosons on the first site and 0 elsewhere
-# print(f'Initial state: {initial_state}')
-# print(f'mps sites {model.lat.mps_sites()}')
-# Instantiate the MPS ansatz
-# psi = MPS.from_product_state(
-#     model.lat.mps_sites(), 
-#     initial_state, 
-#     bc=model.lat.bc_MPS
-# )
-
-# Try mixing the all single-occupancy state with a random state to get a nontrivial initial guess
-# psi = MPS.from_random_unitary_evolution(
-#         sites=model.lat.mps_sites(),
-#         chi=10,
-#         p_state=initial_state,
-#         bc='finite',
-#         dtype=np.float64,
-#         permute=True,
-#         form='B',
-#         chargeL=None,
-#     )
-
 ## Range of max bond dimension chi values to test
-chi_maxs = [8]#, 16, 32, 64, 128, 256, 512, 1024]
+chi_maxs = [16]#, 16, 32, 64, 128, 256, 512, 1024]
 
 ## Lists to store raw DMRG energies and Lanczos-optimized energies for each chi value
 E = []
@@ -102,31 +55,24 @@ for chi_max in chi_maxs:
 
     info = dmrg.run(psi, model, dmrg_params)
     h1, psii = info['E'], info['psi_i']
-    H_mpo = model.H_MPO
     trunc_params = dmrg_params['trunc_params']
 
-    h1_est, h2_est, h3_est = estimate_hamiltonian_moments(psii.copy(), H_mpo, N_s=200)
+    h1_est, h2_est, h3_est = estimate_hamiltonian_moments(
+        psii,
+        H_mpo,
+        N_s=2048,
+        filename=f'moments_chi{chi_max}',
+        seed=42
+        )
     _, alpha_star = optimize_lanczos_step(h1_est, h2_est, h3_est)
-    print(f'alpha_star from raw moments: {alpha_star:.6f}')
-
 
     phi_1 = psii.copy()
     H_mpo.apply_naively(phi_1)
 
-    # alphas = np.linspace(0, 10, 100)
-    # E_alpha_values = []
-    # for alpha in alphas:
-    #     psi_alpha = psii.copy()
-    #     psi_alpha.add(other=phi_1, alpha=1.0, beta=alpha)
-    #     E_alpha_test = np.real(H_mpo.expectation_value(psi=psi_alpha))
-    #     E_alpha_values.append(np.real(E_alpha_test))
-    #     overlap = phi_1.overlap(psi_alpha)
-    #     print(f'Overlap: {overlap:.16f}')
-    #     print(f'E_alpha: {E_alpha_test:.16f} for alpha = {alpha:.6f}')
-
-    psi_alpha = psii.copy()
-    psi_alpha.add(other=phi_1, alpha=1.0, beta=alpha_star)
+    psi_alpha = psii.add(other=phi_1, alpha=1.0, beta=alpha_star)
     E_alpha = np.real(H_mpo.expectation_value(psi=psi_alpha))
+
+    print(f'Variance {H_mpo.variance(psii):.10e}')
 
     # Exact energy from exact diagonalization for comparison
     # exact_diag = ExactDiag(model, max_size=1e12)
@@ -153,13 +99,3 @@ print(f"DMRG Total Particles: {N_dmrg:.2f}")
 # Assuming your ED state was returned as `psi_exact_array`
 # ed_charge = psi_exact.qtotal
 # print(f"ED Ground State Charge Sector: {ed_charge}")
-
-
-
-
-
-
-
-
-
-

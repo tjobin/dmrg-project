@@ -2,11 +2,14 @@ import numpy as np
 from tenpy.networks.mps import MPS
 from tenpy.networks.mpo import MPO
 from tqdm import tqdm
+from numpy import random
 
 def estimate_hamiltonian_moments(
-        psi:MPS,
-        H:MPO,
-        N_s:int
+        psi: MPS,
+        H: MPO,
+        N_s: int,
+        seed: int = None,
+        filename: str = None
         ) -> tuple[float, float, float] :
     """
     Estimates the 1st, 2nd, and 3rd actual moments of the Hamiltonian H
@@ -26,6 +29,11 @@ def estimate_hamiltonian_moments(
     tuple
         Estimated actual moments (M_1, M_2, M_3)
     """
+    rng = np.random.default_rng(seed)  # Create a random number generator with the given seed for reproducibility
+    if filename is not None:
+        fout = open(f'out/{filename}.out','w')
+        fout.write("Sampled states |s> \n")
+        fout.write(f"{'Sample':>10} {'<s|psi>':>20} {'<psi|H|psi>':>20} {'<psi|H^2|psi>':>20} {'<psi|H^3|psi>':>20}\n")
 
     # Prepare exact representations of H|psi>, H^2|psi>, and H^3|psi>.
     # MPO.apply_naively(state) modifies the state in place without compression.
@@ -43,21 +51,22 @@ def estimate_hamiltonian_moments(
     
     for i in tqdm(range(N_s), desc="Sampling"):
         # Sample a basis product state |s> from the MPS.
-        sample_data = psi.sample_measurements()
-        prod_state = sample_data[0] if isinstance(sample_data, tuple) else sample_data
+        # sample_measurements returns exactly (configuration, amplitude)
+        prod_state, exact_overlap = psi.sample_measurements(rng=rng)
 
         # Construct the product state MPS for the sampled configuration
         s_mps = MPS.from_product_state(psi.sites, prod_state, bc=psi.bc)
         
         # Calculate overlaps via standard tensor contractions
         # Note: s_mps.overlap(ket) computes the inner product <s|ket>
-        overlap_0 = s_mps.overlap(psi)   # <s|psi>
+        overlap_0 = exact_overlap        # <s|psi> is exactly calculated during sampling
         overlap_1 = s_mps.overlap(psi_1) # <s|H|psi>
         overlap_2 = s_mps.overlap(psi_2) # <s|H^2|psi>
         
         # Skip states with zero probability to avoid division by zero
         # (Though perfect sampling theoretically precludes this)
-        if np.isclose(overlap_0, 0.0):
+        if np.isclose(overlap_0, 0.0, atol=1e-3):
+            print(f'Warning: Sampled state has exceedingly small overlap with psi, skipping sample {i}.')
             continue
             
         # Compute n-th order local energies 
@@ -65,6 +74,10 @@ def estimate_hamiltonian_moments(
         local_energies_2[i] = overlap_2 / overlap_0 # <s|H^2|psi> / <s|psi>
         # Note: We do not compute local_energies_3 directly since it would require H^3|psi>.
 
+        if filename is not None:
+            fout.write(f"{i:>10} {np.real(overlap_0):>20.6e} {np.real(local_energies_1[i]):>20.6e} {np.real(local_energies_2[i]):>20.6e} {np.real(local_energies_1[i] * local_energies_2[i]):>20.6e}\n")
+    if filename is not None:
+        fout.close()
     # The unbiased estimators are the sample means of the local energies
     M_1 = np.mean(local_energies_1) # E[<s|H|psi> / <s|psi>] \approx <psi|H|psi> / <psi|psi>
     M_2 = np.mean(np.conjugate(local_energies_1) * local_energies_1)  # E[|<s|H|psi>|^2] \approx <psi|H^2|psi> / <psi|psi>
