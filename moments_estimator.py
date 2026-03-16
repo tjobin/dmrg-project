@@ -12,6 +12,7 @@ def estimate_hamiltonian_moments(
         seed: int = None,
         filename: str = None
         ) -> tuple[float, float, float] :
+
     """
     Estimates the 1st, 2nd, and 3rd actual moments of the Hamiltonian H
     using perfect independent sampling from a given MPS psi.
@@ -29,7 +30,7 @@ def estimate_hamiltonian_moments(
         M2: float, the estimated second moment <psi|H^2|psi> / <psi|psi>.
         M3: float, the estimated third moment <psi|H^3|psi> / <psi|psi>.
     """
-    
+
     rng = np.random.default_rng(seed)  # Create a random number generator with the given seed for reproducibility
     if filename is not None:
         fout = open(f'out/{filename}.out','w')
