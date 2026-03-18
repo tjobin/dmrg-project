@@ -1,6 +1,8 @@
 from tenpy.models import Model
 from tenpy.algorithms.exact_diag import ExactDiag
 from tenpy.networks.mps import MPS
+import numpy as np
+import matplotlib.pyplot as plt
 
 # exact energies for quick reference (Lx, Ly) -> E_exact
 EXACT_ENERGIES = {
@@ -30,3 +32,17 @@ def get_exact_psi_and_E(
     exact_out = exact_diag.groundstate()  # Ground state object
     E_exact, psi_exact = exact_out[0], exact_out[1]
     return psi_exact, E_exact
+
+def test_alphas(alpha_min, alpha_max, n_alphas, psii, H_mpo):
+    phi_1 = psii.copy()
+    H_mpo.apply_naively(phi_1)
+    alphas = np.linspace(alpha_min, alpha_max, n_alphas)
+    E_alphas = []
+    for alpha in alphas:
+        psi_alpha = psii.add(other=phi_1, alpha=1.0, beta=alpha)
+        E_alpha = np.real(H_mpo.expectation_value(psi=psi_alpha))
+        E_alphas.append(E_alpha)
+    plt.figure()
+    plt.plot(alphas, E_alphas)
+    plt.axhline(H_mpo.expectation_value(psi=psii), color='k', linestyle='-', label='DMRG')
+    plt.show()
