@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from utils import test_alphas
+
 
 def plot_E_vs_chi(
         chi: list[int],
@@ -35,3 +37,20 @@ def plot_variance_vs_samples(
         plt.plot(samples, vars, marker='o', linestyle='--', label=f'c={cs[i]}')
     plt.legend()
     plt.savefig(f'figs/{filename}.png', bbox_inches='tight')
+
+def plot_Ealpha_vs_alpha(
+        alphas,
+        h1,
+        h2,
+        h3,
+        psii,
+        H_mpo
+    ):
+
+    E_alphas_est = (h1 + 2*alphas*h2 + alphas ** 2 * h3) / (1 + 2 * alphas * h1 + alphas ** 2 * h2)
+    E_alphas = test_alphas(alphas, psii, H_mpo)
+    plt.figure()
+    plt.plot(alphas, E_alphas_est, linestyle='--', marker='o', color='tab:blue',label='Estimation')
+    plt.plot(alphas, E_alphas, linestyle='-.', marker='s', color='tab:orange', label='Exact')
+    plt.legend()
+    plt.show()
