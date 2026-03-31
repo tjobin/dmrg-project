@@ -42,62 +42,91 @@ def estimate_hamiltonian_moments(
     # MPO.apply_naively(state) modifies the state in place without compression.
     # This guarantees the local energies remain mathematically exact, avoiding 
     # truncation bias in the numerator overlaps.
-    psi_1 = psi.copy()
-    H.apply_naively(psi_1)
+    phi = psi.copy()
+    H.apply_naively(phi)
+    phi.canonical_form(renormalize=False)
     
-    psi_2 = psi_1.copy()
-    H.apply_naively(psi_2)
+    chi = phi.copy()
+    H.apply_naively(chi)
 
     local_energies_1 = []
     local_energies_2 = []
+    local_energies_3 = []
     
-    # 1. First pass: Collect raw samples to determine an adaptive threshold
-    raw_samples = []
+
     for i, _ in enumerate(tqdm(range(N_s), desc="Sampling states")):
-        prod_state, exact_overlap = psi.sample_measurements(rng=rng)
-        raw_samples.append((prod_state, exact_overlap))
+        prod_state_psi, exact_overlap_psi = psi.sample_measurements(rng=rng)
         
         # Construct the product state MPS for the sampled configuration
-        s_mps = MPS.from_product_state(psi.sites, prod_state, bc=psi.bc)
+        s_psi = MPS.from_product_state(psi.sites, prod_state_psi, bc=psi.bc)
+
         
         # Calculate overlaps via standard tensor contractions
         # Note: s_mps.overlap(ket) computes the inner product <s|ket>
-        overlap_0 = exact_overlap        # <s|psi> is exactly calculated during sampling
-        overlap_1 = s_mps.overlap(psi_1) # <s|H|psi>
-        overlap_2 = s_mps.overlap(psi_2) # <s|H^2|psi>
+        overlap_0 = exact_overlap_psi        # <s|psi> is exactly calculated during sampling
+        overlap_1 = s_psi.overlap(phi) # <s|H|psi>
+        # overlap_2 = s_psi.overlap(chi) # <s|H^2|psi>
 
         loc_E1 = overlap_1 / overlap_0
-        loc_E2 = overlap_2 / overlap_0
+        # loc_E2 = overlap_2 / overlap_0
+        
 
         # Compute n-th order local energies 
         local_energies_1.append(loc_E1) # <s|H|psi> / <s|psi>
-        local_energies_2.append(loc_E2) # <s|H^2|psi> / <s|psi>
+        local_energies_2.append(loc_E1 ** 2) # <s|H^2|psi> / <s|psi>
         # Note: We do not compute local_energies_3 directly since it would require H^3|psi>.
 
-        if filename is not None:
-            fout.write(f"{i:>10} {np.real(overlap_0):>20.6e} {np.real(loc_E1):>20.6e} {np.real(loc_E2):>20.6e} {np.real(loc_E1 * loc_E2):>20.6e}\n")
-
+        # overlap_0 = exact_overlap_phi        # <s|H|psi> is exactly calculated during sampling
+        
     local_energies_1 = np.array(local_energies_1)
     local_energies_2 = np.array(local_energies_2)
-    cleaned_local_energies_1, _ = clean_local_energies(local_energies_1, local_energies_2, E_dmrg, c)
+
+    cleaned_local_energies_1 = apply_sampling_cutoff(local_energies_1, E_dmrg, c)
+
+    M_1 = np.mean(cleaned_local_energies_1) # E[<s|H|psi> / <s|psi>] \approx <psi|H|psi> / <psi|psi>
+    M_2 = np.mean(local_energies_2)  # E[|<s|H|psi>|^2] \approx <psi|H^2|psi> / <psi|psi>
+
+        # if filename is not None:
+        #     fout.write(f"{i:>10} {np.real(overlap_0):>20.6e} {np.real(loc_E1):>20.6e} {np.real(loc_E2):>20.6e} {np.real(loc_E1 * loc_E2):>20.6e}\n")
+    
+    for i, _ in enumerate(tqdm(range(N_s), desc="Sampling states")):
+        prod_state_phi, exact_overlap_phi = phi.sample_measurements(rng=rng)
+        
+        # Construct the product state MPS for the sampled configuration
+        s_phi = MPS.from_product_state(phi.sites, prod_state_phi, bc=phi.bc)
+        
+        # Calculate overlaps via standard tensor contractions
+        # Note: s_mps.overlap(ket) computes the inner product <s|ket>
+        overlap_0 = exact_overlap_phi        # <s|phi> is exactly calculated during sampling
+        overlap_1 = s_phi.overlap(phi, ignore_form=True) # <s|H|phi>
+        # overlap_2 = s_mps.overlap(psi_2, ignore_form=True) # <s|H^3|psi>
+
+        loc_E3 = - M_2 * overlap_1 / overlap_0
+
+        # Compute n-th order local energies 
+        local_energies_3.append(loc_E3) # <s|H^2|psi> / <s|psi>
+        # Note: We do not compute local_energies_3 directly since it would require H^3|psi>.
+
+        # if filename is not None:
+        #     fout.write(f"{i:>10} {np.real(overlap_0):>20.6e} {np.real(loc_E1):>20.6e} {np.real(loc_E2):>20.6e} {np.real(loc_E1 * loc_E2):>20.6e}\n")
+
+    
+    local_energies_3 = np.array(local_energies_3)
 
 
         
     # The unbiased estimators are the sample means of the local energies
-    M_1 = np.mean(cleaned_local_energies_1) # E[<s|H|psi> / <s|psi>] \approx <psi|H|psi> / <psi|psi>
-    M_2 = np.mean(local_energies_2)  # E[|<s|H|psi>|^2] \approx <psi|H^2|psi> / <psi|psi>
-    M_3 = np.mean(np.conjugate(local_energies_1) * local_energies_2)  # E[<s|H|psi>* * <s|H^2|psi>] = E[<s|H|psi>^* <s|H^2|psi>] \approx <psi|H^3|psi> / <psi|psi>
-    var = np.mean(local_energies_2 - 2 * E_dmrg * cleaned_local_energies_1 + E_dmrg ** 2)
+    M_3 = np.mean(local_energies_3)  # E[<s|H|psi>* * <s|H^2|psi>] = E[<s|H|psi>^* <s|H^2|psi>] \approx <psi|H^3|psi> / <psi|psi>
+    # var = np.mean(local_energies_2 - 2 * E_dmrg * local_energies_1 + E_dmrg ** 2)
     
     if filename is not None:
         fout.write(f'\n M1 = {np.real(M_1)}\n M2 = {np.real(M_2)}\n M3 = {np.real(M_3)}\n')
         fout.close()
     
     # Return purely real components since H is Hermitian
-    return np.real(M_1), np.real(M_2), np.real(M_3), np.real(var)
+    return np.real(M_1), np.real(M_2), np.real(M_3)#, np.real(var)
 
-
-def clean_local_energies(E_L, E2_L, E_dmrg, c):
+def clean_local_energies(E_L, E_dmrg, c):
     """
     Applies a symmetric cutoff to local energies and local second moments 
     based on a cutoff ratio c.
@@ -121,23 +150,19 @@ def clean_local_energies(E_L, E2_L, E_dmrg, c):
     # 1. Calculate the deviations from the respective reference values
     E2_ref = E_dmrg ** 2
     eps = E_L - E_dmrg
-    eta = E2_L - E2_ref
     
     # 2. Determine the maximum allowed deviations (epsilon_max and eta_max).
     # Taking the c-th percentile of the absolute deviations guarantees that
     # exactly a fraction 'c' of the original samples fall within the bounds.
     eps_max = np.percentile(np.abs(eps), c * 100)
-    eta_max = np.percentile(np.abs(eta), c * 100)
     
     # 3. Apply the piecewise function f(epsilon) to clip extreme tails symmetrically
     eps_clipped = np.clip(eps, -eps_max, eps_max)
-    eta_clipped = np.clip(eta, -eta_max, eta_max)
     
     # 4. Reconstruct the bounded local energies
     E_L_cleaned = E_dmrg + eps_clipped
-    E2_L_cleaned = E2_ref + eta_clipped
     
-    return E_L_cleaned, E2_L_cleaned
+    return E_L_cleaned
 
 def get_mpo_moments_bruteforce(
         psi: MPS,
@@ -152,8 +177,52 @@ def get_mpo_moments_bruteforce(
     psi2 = psi1.copy()
     H.apply_naively(psi2)
 
-    h1 = psi.overlap(psi1)
-    h2 = psi.overlap(psi2)
-    h3 = psi1.overlap(psi2)
+    h1 = psi.overlap(psi1, ignore_form=True)
+    h2 = psi.overlap(psi2, ignore_form=True)
+    h3 = psi1.overlap(psi2, ignore_form=True)
 
     return h1, h2, h3
+    # Strip tiny numerical imaginary parts to prevent complex-valued alpha_star
+    return float(np.real(h1)), float(np.real(h2)), float(np.real(h3))
+
+import numpy as np
+
+def apply_sampling_cutoff(local_energies, E_dmrg, c):
+    """
+    Applies the symmetric piecewise cutoff function to an array of sampled 
+    local energies to mitigate fat-tailed fluctuations.
+    
+    Parameters
+    ----------
+    local_energies : numpy.ndarray
+        1D array of sampled local energies (size N_s).
+    E_dmrg : float
+        The reference ground-state energy obtained from the DMRG sweep.
+    c : float
+        The cutoff ratio (between 0.0 and 1.0), representing the fraction 
+        of local energies left unchanged.
+        
+    Returns
+    -------
+    numpy.ndarray
+        The cleaned array of local energies after applying the cutoff bias.
+    """
+    # Calculate the deviations from the reference DMRG energy
+    deviations = local_energies - E_dmrg
+    
+    # The cutoff is based on the magnitude of the deviations.
+    # To leave a fraction 'c' of the data untouched, we find the c-th 
+    # quantile (e.g., the 90th percentile for c=0.9) of the absolute deviations.
+    abs_deviations = np.abs(deviations)
+    epsilon_max = np.percentile(abs_deviations, c * 100)
+    
+    # Apply the piecewise function f(epsilon) to clip the tails symmetrically
+    # f(epsilon) = -epsilon_max if epsilon < -epsilon_max
+    # f(epsilon) = epsilon_max if epsilon > epsilon_max
+    # f(epsilon) = epsilon otherwise
+    clipped_deviations = np.clip(deviations, -epsilon_max, epsilon_max)
+    
+    # Reconstruct the cleaned local energies
+    cleaned_local_energies = E_dmrg + clipped_deviations
+    
+    return cleaned_local_energies
