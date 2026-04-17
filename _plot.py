@@ -1,13 +1,13 @@
 import matplotlib.pyplot as plt
-import numpy as np
 from utils import test_alphas
 
 
 def plot_E_vs_chi(
         chi: list[int],
-        E: list[float],
-        E_alpha: list[float],
-        E_exact: float | None = None,
+        E_exact: float,
+        E_dmrg: list[float],
+        El_alpha: list[float],
+        El_exact: list[float] = None,
         dim: int | list[int] = 1,
         filename: str = 'energy_vs_chi'
         ) -> None:
@@ -15,10 +15,11 @@ def plot_E_vs_chi(
     
     """
     plt.figure(figsize=(10, 6))
-    plt.plot(chi, E, marker='o', linestyle='--', color='tab:blue', label='DMRG')
-    plt.plot(chi, E_alpha, marker='s', linestyle='-.', color='tab:orange', label='DMRG + Lanczos')
-    if E_exact is not None:
-        plt.axhline(E_exact, color='k', linestyle='-', label='Exact')
+    plt.plot(chi, E_dmrg, marker='o', linestyle='--', color='tab:blue', label='DMRG')
+    plt.plot(chi, El_alpha, marker='s', linestyle='-.', color='tab:orange', label='DMRG + Lanczos (Sampled)')
+    if El_exact is not None:
+        plt.plot(chi, El_exact, marker='*', linestyle='-', color='k', label='DMRG + Lanczos (Exact)')
+    plt.hlines(E_exact, xmin=min(chi), xmax=max(chi), colors='r', linestyles=':', label='Exact Energy')
     plt.title(f'Energy vs. Chi (L={dim})')
     plt.xlabel('Chi')
     plt.ylabel('Energy (Ha)')
