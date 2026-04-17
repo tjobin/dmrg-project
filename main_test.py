@@ -1,137 +1,67 @@
 import numpy as np
-from lanczos_method import optimize_lanczos_step
-from moments_estimator import estimate_hamiltonian_moments, get_mpo_moments_bruteforce
+from lanczos_method import lanczos_step_sampled, lanczos_step_exact
+from j1j2_model import j1j2_model
 from tenpy.algorithms import dmrg
 from tenpy.networks.mps import MPS
 from tenpy.models.hubbard import BoseHubbardModel
 from _plot import plot_E_vs_chi, plot_variance_vs_samples, plot_Ealpha_vs_alpha
 from utils import get_exact_psi_and_E, EXACT_ENERGIES, test_alphas
-import matplotlib.pyplot as plt
 
-Lx, Ly = 5, 3
-N = Lx * Ly  # Half-filling for bosons
+
+Lx, Ly = 5, 5
 
 ## Define the model parameters for a Lx by Ly cylinder of the Bose-Hubbard model
-model_params = {
-        "lattice": "Square",
-        "Lx": Lx,             # Number of sites along the cylinder length
-        "Ly": Ly,             # Circumference of the cylinder (number of sites)
-        "bc_MPS": "finite",   # Finite MPS (open boundaries for the 1D path)
-        "bc_y": "cylinder",   # Periodic boundary conditions in the y-direction
-        "bc_x": "open",       # Open boundary conditions in the x-direction
-        "t": 1.0,               # Nearest-neighbor hopping amplitude
-        "U": 4.0,               # On-site Coulomb repulsion
-        "mu": 0.0,             # Chemical potential
-        "conserve": "N",        # Conserve total particle number U(1)
-        # "cons_Sz": "Sz",      # Conserve total spin Z U(1)
-    }
-
-model = BoseHubbardModel(model_params)
-H_mpo = model.H_MPO
-
-## Create an initial MPS in the product state |up up up ...>
-product_state = [1] * model.lat.N_sites
-psi = MPS.from_product_state(model.lat.mps_sites(), product_state, bc=model.lat.bc_MPS)
 
 ## Lists to store raw DMRG energies and Lanczos-optimized energies for each chi value
+
 E_dmrg = []
-E_lanczos = []
-E_exact = []
+El_sampled = []
+El_exact = []
 
 ## Range of max bond dimension chi values to test
 chi_maxs = [24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40] # , 44, 48, 52, 56, 60, 64]
 
 Nss = [256, 256, 512, 1024]
 
-cs = [1]
-
 ## Run DMRG for each bond-dimension chi
 for chi_max in chi_maxs:
-    dmrg_params = {
-                'mixer': True,           # Adds a density matrix perturbation to escape local minima
-                'max_E_err': 1.0e-10,    # Energy convergence threshold
-                'trunc_params': {
-                    'chi_max': chi_max,      # Maximum bond dimension (m or \chi)
-                    'svd_min': 1.0e-10   # Discarded weight / singular value cutoff
-                },
-                'combine': True,          # Combine local tensors for the 2-site update
-                'active_sites': 2
-            }
-    
-    info = dmrg.run(psi, model, dmrg_params)
-    vars_per_c = [[] for _ in range(len(cs))]
-    Ei, psii = info['E'], info['psi_i']
-    phi_1 = psii.copy()
-    H_mpo.apply_naively(phi_1)
+    print(f'\n====================================== chi_max = {chi_max} ======================================\n')  
 
-    h1_exact, h2_exact, h3_exact = get_mpo_moments_bruteforce(psii, H_mpo)
-    alpha_p_exact, alpha_m_exact = optimize_lanczos_step(h1_exact, h2_exact, h3_exact)
+    model = j1j2_model(Lx=Lx, Ly=Ly, j1=1.0, j2=0.5, chi_max=chi_max)
+    H_mpo = model.get_mpo()
+    E, psi = model.run()  
+    psi_alpha_sampled = psi.copy() 
+    psi_alpha_exact = psi.copy()
 
-    psi_alpha_p_exact = psii.add(other=phi_1, alpha=1.0, beta=alpha_p_exact)
-    psi_alpha_m_exact = psii.add(other=phi_1, alpha=1.0, beta=alpha_m_exact)
+    for Ns in Nss:        
+        # Lanczos step using the estimated moments from perfect sampling
+        E_alpha_sampled, psi_alpha_sampled, alpha_star_sampled = lanczos_step_sampled(
+            psi=psi_alpha_sampled,
+            H=H_mpo,
+            N_s=Ns,
+            chi_max=chi_max,
+            seed=42,
+            filename=f'moments_chi{chi_max}_Ns{Ns}'
+        )
+        
 
-    E_alpha_p_exact = np.real(H_mpo.expectation_value(psi=psi_alpha_p_exact))
-    E_alpha_m_exact = np.real(H_mpo.expectation_value(psi=psi_alpha_m_exact))
+        E_alpha_exact, psi_alpha_exact, alpha_star_exact = lanczos_step_exact(
+            psi=psi_alpha_exact,
+            H=H_mpo
+        )
 
-    if E_alpha_p_exact < E_alpha_m_exact:
-        E_alpha_exact = E_alpha_p_exact
-        alpha_star_exact = alpha_p_exact
-        psii_exact = psi_alpha_p_exact
-    else:
-        E_alpha_exact = E_alpha_m_exact
-        alpha_star_exact = alpha_m_exact
-        psii_exact = psi_alpha_m_exact
+        psi_alpha_sampled.canonical_form()
+        psi_alpha_sampled.norm = 1.0
+        psi_alpha_exact.canonical_form()
+        psi_alpha_exact.norm = 1.0
 
-
-    for i, c in enumerate(cs):
-        for Ns in Nss:            
-            # Lanczos step using the estimated moments from perfect sampling
-            h1_est, h2_est, h3_est = estimate_hamiltonian_moments(
-                psii,
-                H_mpo,
-                N_s=Ns,
-                E_dmrg=Ei,
-                c=c,
-                filename=f'moments_chi{chi_max}',
-                seed=42
-                )
-            
-
-            print(f'estimated h1 : {h1_est}, estimated h2 : {h2_est}, estimated h3 : {h3_est}')
-            print(f'exact h1 : {h1_exact}, exact h2 : {h2_exact}, exact h3 : {h3_exact}')
-            alpha_p, alpha_m = optimize_lanczos_step(Ei, h2_est, h3_est)
-            # print(f'alpha_p : {alpha_p}, alpha_m : {alpha_m}')
-
-            psi_alpha_p = psii.add(other=phi_1, alpha=1.0, beta=alpha_p)
-            psi_alpha_m = psii.add(other=phi_1, alpha=1.0, beta=alpha_m)
-
-            E_alpha_p = np.real(H_mpo.expectation_value(psi=psi_alpha_p))
-            E_alpha_m = np.real(H_mpo.expectation_value(psi=psi_alpha_m))
-
-            if E_alpha_p < E_alpha_m:
-                E_alpha = E_alpha_p
-                alpha_star = alpha_p
-                psii = psi_alpha_p
-            else:
-                E_alpha = E_alpha_m
-                alpha_star = alpha_m
-                psii = psi_alpha_m
-            psii.canonical_form()
-            psii.norm = 1.0
-            print(f'Ei : {Ei}')
-            print(f'E_alpha_est : {E_alpha}, alpha_star : {alpha_star}')
-            print(f'E_alpha_exact : {E_alpha_exact}, alpha_star_exact : {alpha_star_exact}')
-            # alphas = np.linspace(0.0, 0.04, 51)
-            # plot_Ealpha_vs_alpha(alphas, h1_exact, h2_exact, h3_exact, psii, H_mpo)
-    E_dmrg.append(Ei)
-    E_lanczos.append(E_alpha)
-    E_exact.append(E_alpha_exact)
+    E_dmrg.append(E)
+    El_sampled.append(E_alpha_sampled)
+    El_exact.append(E_alpha_exact)
 
 plot_E_vs_chi(
     chi_maxs,
     E_dmrg,
-    E_lanczos,
-    E_exact,
+    El_sampled,
+    El_exact,
 )
-
-    # plot_variance_vs_samples(vars_per_c, Nss, cs, filename=f'variance_chi{chi_max}_c=1_')
