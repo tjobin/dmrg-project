@@ -1,0 +1,13 @@
+system:
+  Lx: 5
+  Ly: 5
+  j1: 1.0
+  j2: 0.5
+
+# DMRG sweep parameters
+chi_maxs: [24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40]
+
+# Lanczos sampling parameters
+lanczos:
+  Nss: [256, 256, 512, 1024]
+  seed: 42
