@@ -8,6 +8,7 @@ def estimate_hamiltonian_moments(
         psi: MPS,
         H: MPO,
         N_s: int,
+        chi_max: int,
         seed: int = None,
         filename: str = None,
         ) -> tuple[float, float, float] :
@@ -41,19 +42,15 @@ def estimate_hamiltonian_moments(
     # This guarantees the local energies remain mathematically exact, avoiding 
     # truncation bias in the numerator overlaps.
     phi = psi.copy()
-    H.apply(phi, options={'compression_method' : 'zip_up', 'trunc_params' : {'chi_max' : 24}})
-    # H.apply_naively(phi)
-    # phi.canonical_form(renormalize=False)
-    
-    # chi = phi.copy()
-    # H.apply_naively(chi)
+    H.apply(phi, options={'compression_method' : 'zip_up', 'trunc_params' : {'chi_max' : chi_max}})
+    phi.canonical_form(renormalize=False)
 
     local_energies_1 = []
     local_energies_2 = []
     local_energies_3 = []
     
 
-    for i, _ in enumerate(tqdm(range(N_s), desc="Sampling states")):
+    for _ in tqdm(range(N_s), desc="Sampling states"):
         prod_state_psi, exact_overlap_psi = psi.sample_measurements(rng=rng)
         
         # Construct the product state MPS for the sampled configuration
@@ -64,34 +61,24 @@ def estimate_hamiltonian_moments(
         # Note: s_mps.overlap(ket) computes the inner product <s|ket>
         overlap_0 = exact_overlap_psi        # <s|psi> is exactly calculated during sampling
         overlap_1 = s_psi.overlap(phi) # <s|H|psi>
-        # overlap_2 = s_psi.overlap(chi) # <s|H^2|psi>
 
         loc_E1 = overlap_1 / overlap_0
-        # loc_E2 = overlap_2 / overlap_0
-        
 
         # Compute n-th order local energies 
         local_energies_1.append(loc_E1) # <s|H|psi> / <s|psi>
         local_energies_2.append(loc_E1 ** 2) # <s|H^2|psi> / <s|psi>
-        # local_energies_2.append(loc_E1 * loc_E2) # <s|H^2|psi> / <s|psi>
-        # Note: We do not compute local_energies_3 directly since it would require H^3|psi>.
 
-        # overlap_0 = exact_overlap_phi        # <s|H|psi> is exactly calculated during sampling
         
     local_energies_1 = np.array(local_energies_1)
     local_energies_2 = np.array(local_energies_2)
-    # local_energies_3 = np.array(local_energies_3)
+
 
     # cleaned_local_energies_1 = apply_sampling_cutoff(local_energies_1, E_dmrg, c)
 
     M_1 = np.mean(local_energies_1) # E[<s|H|psi> / <s|psi>] \approx <psi|H|psi> / <psi|psi>
     M_2 = np.mean(local_energies_2)  # E[|<s|H|psi>|^2] \approx <psi|H^2|psi> / <psi|psi>
-    # M_3 = np.mean(local_energies_3)  # E[<s|H|psi>* * <s|H^2|psi>] = E[<s|H|psi>^* <s|H^2|psi>] \approx <psi|H^3|psi> / <psi|psi>
-
-        # if filename is not None:
-        #     fout.write(f"{i:>10} {np.real(overlap_0):>20.6e} {np.real(loc_E1):>20.6e} {np.real(loc_E2):>20.6e} {np.real(loc_E1 * loc_E2):>20.6e}\n")
     
-    for i, _ in enumerate(tqdm(range(N_s), desc="Sampling states")):
+    for _ in tqdm(range(N_s), desc="Sampling states"):
         prod_state_phi, exact_overlap_phi = phi.sample_measurements(rng=rng)
         
         # Construct the product state MPS for the sampled configuration
@@ -101,25 +88,17 @@ def estimate_hamiltonian_moments(
         # Note: s_mps.overlap(ket) computes the inner product <s|ket>
         overlap_0 = exact_overlap_phi        # <s|phi> is exactly calculated during sampling
         overlap_1 = s_phi.overlap(phi, ignore_form=True) # <s|H|phi>
-        # overlap_2 = s_mps.overlap(psi_2, ignore_form=True) # <s|H^3|psi>
-
+        
+        # Compute 3rd order local energies 
         loc_E3 = - M_2 * overlap_1 / overlap_0
-
-        # Compute n-th order local energies 
-        local_energies_3.append(loc_E3) # <s|H^2|psi> / <s|psi>
-        # Note: We do not compute local_energies_3 directly since it would require H^3|psi>.
-
-        # if filename is not None:
-        #     fout.write(f"{i:>10} {np.real(overlap_0):>20.6e} {np.real(loc_E1):>20.6e} {np.real(loc_E2):>20.6e} {np.real(loc_E1 * loc_E2):>20.6e}\n")
+        local_energies_3.append(loc_E3)
 
     
     local_energies_3 = np.array(local_energies_3)
 
 
-        
     # The unbiased estimators are the sample means of the local energies
-    M_3 = np.mean(local_energies_3)  # E[<s|H|psi>* * <s|H^2|psi>] = E[<s|H|psi>^* <s|H^2|psi>] \approx <psi|H^3|psi> / <psi|psi>
-    # var = np.mean(local_energies_2 - 2 * E_dmrg * local_energies_1 + E_dmrg ** 2)
+    M_3 = np.mean(local_energies_3) 
     
     if filename is not None:
         fout.write(f'\n M1 = {np.real(M_1)}\n M2 = {np.real(M_2)}\n M3 = {np.real(M_3)}\n')
@@ -266,7 +245,6 @@ def clean_local_energies(E_L, E_dmrg, c):
 def get_mpo_moments_bruteforce(
         psi: MPS,
         H: MPO
-
     ) -> tuple[float, float, float] :
 
     psi1 = psi.copy()
@@ -281,8 +259,6 @@ def get_mpo_moments_bruteforce(
     h3 = psi1.overlap(psi2, ignore_form=True)
 
     return h1, h2, h3
-    # Strip tiny numerical imaginary parts to prevent complex-valued alpha_star
-    return float(np.real(h1)), float(np.real(h2)), float(np.real(h3))
 
 import numpy as np
 
