@@ -1,17 +1,11 @@
-import numpy as np
 from lanczos_method import lanczos_step_sampled, lanczos_step_exact
 from j1j2_model import j1j2_model
-from tenpy.algorithms import dmrg
-from tenpy.networks.mps import MPS
-from tenpy.models.hubbard import BoseHubbardModel
-from _plot import plot_E_vs_chi, plot_variance_vs_samples, plot_Ealpha_vs_alpha
-from utils import get_exact_psi_and_E, EXACT_ENERGIES_J1J2_cylinder, test_alphas
+from _plot import plot_dE_vs_chi, plot_rel_dE_vs_chi
+from utils import get_exact_psi_and_E, EXACT_ENERGIES_J1J2_cylinder
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-
-Lx, Ly = 4, 4
-
+@hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg: DictConfig):
 
     print(OmegaConf.to_yaml(cfg))
@@ -21,63 +15,69 @@ def main(cfg: DictConfig):
     j1 = cfg.system.j1
     j2 = cfg.system.j2
 
-## Lists to store raw DMRG energies and Lanczos-optimized energies for each chi value
-E_dmrg = []
-El_sampled = []
-El_exact = []
+    ## Lists to store raw DMRG energies and Lanczos-optimized energies for each chi value
+    E_dmrg = []
+    El_sampled = []
+    # El_exact = []
 
-## Range of max bond dimension chi values to test
-chi_maxs = [40] # , 44, 48, 52, 56, 60, 64]
+    model = j1j2_model(Lx=Lx, Ly=Ly, j1=j1, j2=j2)
+    H_mpo = model.get_mpo()
 
-Nss = [256, 256, 512, 1024]
+    # _, E_exact = get_exact_psi_and_E(model.model)
+    E_exact = EXACT_ENERGIES_J1J2_cylinder[(Lx, Ly)]
 
-model = j1j2_model(Lx=Lx, Ly=Ly, j1=1.0, j2=0.5)
-H_mpo = model.get_mpo()
+    # print(f"Exact energy from exact diagonalization: {E_exact:.10f} Ha")
+    # Run DMRG for each bond-dimension chi
+    for chi_max in cfg.chi_maxs:
+        print(f'\n====================================== chi_max = {chi_max} ======================================\n')  
+        E, psi = model.run(chi_max=chi_max)  
+        psi_alpha_sampled = psi.copy() 
+        # psi_alpha_exact = psi.copy()
 
-_, E_exact = get_exact_psi_and_E(model.model)
-# E_exact = EXACT_ENERGIES_J1J2_cylinder[(Lx, Ly)]
+        for Ns, seed in zip(cfg.lanczos.Nss, cfg.lanczos.seeds):            # Lanczos step using the estimated moments from perfect sampling
+            E_alpha_sampled, psi_alpha_sampled, alpha_star_sampled = lanczos_step_sampled(
+                psi=psi_alpha_sampled,
+                H=H_mpo,
+                N_s=Ns,
+                chi_max=chi_max,
+                seed=seed,
+                filename=f'moments_chi{chi_max}_Ns{Ns}'
+            )
+            psi_alpha_sampled.canonical_form()
+            psi_alpha_sampled.norm = 1.0
+            
+        # E_alpha_exact, psi_alpha_exact, alpha_star_exact = lanczos_step_exact(
+        #         psi=psi_alpha_exact,
+        #         H=H_mpo
+        #     )
 
-print(f"Exact energy from exact diagonalization: {E_exact:.10f} Ha")
-# Run DMRG for each bond-dimension chi
-# for chi_max in cfg.chi_maxs:
-#     print(f'\n====================================== chi_max = {chi_max} ======================================\n')  
-#     E, psi = model.run(chi_max=chi_max)  
-#     psi_alpha_sampled = psi.copy() 
-#     psi_alpha_exact = psi.copy()
+        print(f'Exact energy: {E_exact:.10f} Ha')
+        print(f"DMRG energy: {E:.10f} Ha")
+        print(f"Lanczos (sampled): E = {E_alpha_sampled:.10f} Ha, alpha = {alpha_star_sampled:.4f}")
+        # print(f"Lanczos (exact): E = {E_alpha_exact:.10f} Ha, alpha = {alpha_star_exact:.4f}")
 
-#     for Ns in cfg.lanczos.Nss:        
-#         # Lanczos step using the estimated moments from perfect sampling
-#         E_alpha_sampled, psi_alpha_sampled, alpha_star_sampled = lanczos_step_sampled(
-#             psi=psi_alpha_sampled,
-#             H=H_mpo,
-#             N_s=Ns,
-#             chi_max=chi_max,
-#             seed=cfg.lanczos.seed,
-#             filename=f'moments_chi{chi_max}_Ns{Ns}'
-#         )
-#         # E_alpha_exact, psi_alpha_exact, alpha_star_exact = lanczos_step_exact(
-#         #     psi=psi_alpha_exact,
-#         #     H=H_mpo
-#         # )
+        E_dmrg.append(E)
+        El_sampled.append(E_alpha_sampled)
+        # El_exact.append(E_alpha_exact)
 
-#         psi_alpha_sampled.canonical_form()
-#         psi_alpha_sampled.norm = 1.0
-#         # psi_alpha_exact.canonical_form()
-#         # psi_alpha_exact.norm = 1.0
-#     print(f'Exact energy: {E_exact:.10f} Ha')
-#     print(f"DMRG energy: {E:.10f} Ha")
-#     print(f"Lanczos energy (sampled): {E_alpha_sampled:.10f} Ha")
-#     # print(f"Lanczos energy (exact): {E_alpha_exact:.10f} Ha")
-#     E_dmrg.append(E)
-#     El_sampled.append(E_alpha_sampled)
-#     # El_exact.append(E_alpha_exact)
+    plot_rel_dE_vs_chi(
+        cfg.chi_maxs,
+        E_exact,
+        E_dmrg,
+        El_sampled,
+        None,
+        dim=[Lx, Ly],
+        filename=f'J1J2_{Lx}x{Ly}/rel_dE_vs_chi{cfg.chi_maxs[0]}-{cfg.chi_maxs[-1]}_Ns{cfg.lanczos.Nss[0]}-{cfg.lanczos.Nss[-1]}'
+    )
+    plot_dE_vs_chi(
+        cfg.chi_maxs,
+        E_exact,
+        E_dmrg,
+        El_sampled,
+        None,
+        dim=[Lx, Ly],
+        filename=f'J1J2_{Lx}x{Ly}/dE_vs_chi{cfg.chi_maxs[0]}-{cfg.chi_maxs[-1]}_Ns{cfg.lanczos.Nss[0]}-{cfg.lanczos.Nss[-1]}'
+    )
 
-# plot_E_vs_chi(
-#     chi_maxs,
-#     E_exact,
-#     E_dmrg,
-#     El_sampled,
-#     None,
-# )
-
-
+if __name__ == "__main__":
+    main()
