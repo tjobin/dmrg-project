@@ -1,8 +1,8 @@
 import numpy as np
+import warnings
 from tenpy.networks.mps import MPS
 from tenpy.networks.mpo import MPO
-from tqdm import tqdm
-from moments_estimator import estimate_hamiltonian_moments_cheap, get_mpo_moments_bruteforce
+from moments_estimator import estimate_hamiltonian_moments_cheap, get_mpo_moments_bruteforce, estimate_hamiltonian_moments
 
 
 def get_optimized_alphas(
@@ -22,9 +22,9 @@ def get_optimized_alphas(
         alpha_m: float, second analytical solution
     """    
     if (h3-h1*h2)**2 - 4*(h2-h1**2)*(h1*h3-h2**2) <= 0:
-        print("Warning: negative square root; setting it to 0.")
-        alpha_p = (-(h3 - h1*h2)) / (2*(h1*h3-h2**2))
+        alpha_p = (-(h3 - h1*h2)) / (2*(h1*h3-h2**2) + 1e-12)
         alpha_m = alpha_p
+        warnings.warn("Negative square root in alpha optimization; setting it to 0.")
     else:
         alpha_p = (-(h3 - h1*h2) + np.sqrt((h3-h1*h2)**2 - 4*(h2-h1**2)*(h1*h3-h2**2))) / (2*(h1*h3-h2**2) + 1e-12)
         alpha_m = (-(h3 - h1*h2) - np.sqrt((h3-h1*h2)**2 - 4*(h2-h1**2)*(h1*h3-h2**2))) / (2*(h1*h3-h2**2) + 1e-12)
@@ -46,7 +46,16 @@ def lanczos_step_sampled(
         seed: int = None,
         filename: str = None):
     
-    h1, h2, h3 = estimate_hamiltonian_moments_cheap(
+    # h1, h2, h3 = estimate_hamiltonian_moments_cheap(
+    #     psi = psi,
+    #     H = H,
+    #     N_s = N_s,
+    #     chi_max = chi_max,
+    #     seed = seed,
+    #     filename = filename
+    # )
+
+    h1, h2, h3 = estimate_hamiltonian_moments(
         psi = psi,
         H = H,
         N_s = N_s,
