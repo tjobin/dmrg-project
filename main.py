@@ -4,9 +4,20 @@ from _plot import plot_dE_vs_chi, plot_rel_dE_vs_chi
 from utils import get_exact_psi_and_E, EXACT_ENERGIES_J1J2_cylinder
 import hydra
 from omegaconf import DictConfig, OmegaConf
+import json
+import os
+import random
+import numpy as np
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg: DictConfig):
+
+    assert len(cfg.lanczos.Nss) == len(cfg.lanczos.seeds), "Length of Nss and seeds must be the same"
+    
+    # Set global seeds for reproducibility
+    global_seed = 100
+    random.seed(global_seed)
+    np.random.seed(global_seed)
 
     print(OmegaConf.to_yaml(cfg))
 
@@ -19,6 +30,7 @@ def main(cfg: DictConfig):
     E_dmrg = []
     El_sampled = []
     # El_exact = []
+    data_to_save = {}
 
     model = j1j2_model(Lx=Lx, Ly=Ly, j1=j1, j2=j2)
     H_mpo = model.get_mpo()
@@ -59,6 +71,22 @@ def main(cfg: DictConfig):
         E_dmrg.append(E)
         El_sampled.append(E_alpha_sampled)
         # El_exact.append(E_alpha_exact)
+
+        rel_dE = (E_alpha_sampled - E_exact + 1e-12) / (E - E_exact + 1e-12)
+        dE = E_alpha_sampled - E_exact
+        data_to_save[str(chi_max)] = {
+            "E_exact": float(E_exact),
+            "E_dmrg": float(E),
+            "El_sampled": float(E_alpha_sampled),
+            "rel_dE": float(rel_dE),
+            "dE": float(dE)
+        }
+        
+    # Save plotted data to a JSON file
+    os.makedirs(f'log_lanczos/J1J2_{Lx}x{Ly}', exist_ok=True)
+    json_filename = f'log_lanczos/J1J2_{Lx}x{Ly}/data_chi{cfg.chi_maxs[0]}-{cfg.chi_maxs[-1]}_Ns{cfg.lanczos.Nss[0]}-{cfg.lanczos.Nss[-1]}.json'
+    with open(json_filename, 'w') as f:
+        json.dump(data_to_save, f, indent=4)
 
     plot_rel_dE_vs_chi(
         cfg.chi_maxs,
