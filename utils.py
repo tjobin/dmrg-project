@@ -4,18 +4,29 @@ from tenpy.networks.mps import MPS
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from typing import Any
 
 # exact energies for quick reference (Lx, Ly) -> E_exact
-EXACT_ENERGIES = {
+EXACT_ENERGIES_BOSEHUBBARD = {
     (3, 2): -12.7907317932865769,
     (4, 2): -18.0367928615768918,
     }
+EXACT_ENERGIES_J1J2_torus = {
+    (3, 3): -3.484501,
+    (3, 4): -6.2043858259,
+    (4, 4): -8.4579233514,
+    }
+EXACT_ENERGIES_J1J2_cylinder = {
+    (3, 3): -3.7649701644,
+    (3, 4): -5.4917879192,
+    (4, 4): -8.2612325630
+}
 
 def get_exact_psi_and_E(
         model: Model,
         charge_sector: list[int] | int | None = None,
         max_size: float = 1e12
-        ) -> tuple[MPS, float] :
+        ) -> tuple[Any, float] :
     """
     Exact energy from exact diagonalization for comparison; only works for small systems.
     Otherwise the variance is used as an indicator
