@@ -4,7 +4,7 @@
 
 ### 📖 Overview
 
-dmrg-project is a computational framework for simulating the $J_1$-$J_2$ Heisenberg model on a cylinder using tensor network techniques. It implements Density Matrix Renormalization Group (DMRG) to optimize Matrix Product States (MPS).
+dmrg-project is a computational framework for simulating the $J_1-J_2$ Heisenberg model on a cylinder using tensor network techniques. It implements Density Matrix Renormalization Group (DMRG) to optimize Matrix Product States (MPS).
 
 Furthermore, it enhances ground state energy approximations by applying a variational Lanczos step. The Lanczos step relies on optimizing a variational parameter $\alpha$ based on the first three moments of the Hamiltonian. These moments can be evaluated exactly or estimated via perfect MPS-sampling.
 

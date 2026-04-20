@@ -2,14 +2,14 @@ import numpy as np
 import warnings
 from tenpy.networks.mps import MPS
 from tenpy.networks.mpo import MPO
-from moments_estimator import estimate_hamiltonian_moments_cheap, get_mpo_moments_bruteforce, estimate_hamiltonian_moments
+from moments_estimator import estimate_hamiltonian_moments_cheap, get_mpo_moments_bruteforce
 
 
 def get_optimized_alphas(
         h1: float,
         h2: float,
         h3: float,
-        ) -> float :
+        ) -> tuple[float, float] :
     """
     Calculates the optimal variational parameter alpha for a single 
     Lanczos step from the analytical solution.
@@ -43,19 +43,10 @@ def lanczos_step_sampled(
         H: MPO,
         N_s: int,
         chi_max: int,
-        seed: int = None,
-        filename: str = None):
+        seed: int | None = None,
+        filename: str | None = None):
     
-    # h1, h2, h3 = estimate_hamiltonian_moments_cheap(
-    #     psi = psi,
-    #     H = H,
-    #     N_s = N_s,
-    #     chi_max = chi_max,
-    #     seed = seed,
-    #     filename = filename
-    # )
-
-    h1, h2, h3 = estimate_hamiltonian_moments(
+    h1, h2, h3 = estimate_hamiltonian_moments_cheap(
         psi = psi,
         H = H,
         N_s = N_s,

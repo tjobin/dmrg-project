@@ -8,8 +8,8 @@ def plot_rel_dE_vs_chi(
         E_exact: float,
         E_dmrg: list[float],
         El_alpha: list[float],
-        El_exact: list[float] = None,
-        dim: int | list[int] = 1,
+        El_exact: list[float] | None = None,
+        dim: list[int] = [1, 1],
         filename: str = 'energy_vs_chi'
         ) -> None:
     """
@@ -23,7 +23,7 @@ def plot_rel_dE_vs_chi(
     # plt.hlines(E_exact, xmin=min(chi), xmax=max(chi), colors='r', linestyles=':', label='Exact Energy')
     plt.title(f'Energy vs. Chi (Lx={dim[0]}, Ly={dim[1]})')
     plt.xlabel('Chi')
-    plt.ylabel(r'Relative energy difference $\Delta E_l / \Delta E$ (Ha)')
+    plt.ylabel(r'Relative energy diff $\Delta E_l / \Delta E$')
     plt.ylim(0, 1.05)
     plt.grid()
     plt.legend()
@@ -35,8 +35,8 @@ def plot_dE_vs_chi(
         E_exact: float,
         E_dmrg: list[float],
         El_alpha: list[float],
-        El_exact: list[float] = None,
-        dim: int | list[int] = 1,
+        El_exact: list[float] | None = None,
+        dim: list[int] = [1, 1],
         filename: str = 'energy_vs_chi'
         ) -> None:
     """
@@ -49,7 +49,7 @@ def plot_dE_vs_chi(
         plt.plot(chi, np.array(El_exact) - E_exact, marker='s', linestyle='-.', color='k', label='DMRG + Lanczos (Exact)')
     plt.title(f'Energy vs. Chi (Lx={dim[0]}, Ly={dim[1]})')
     plt.xlabel('Chi')
-    plt.ylabel(r'Energy  $\Delta E_l / \Delta E$ (Ha)')
+    plt.ylabel(r'Energy diff  $\Delta E_l$ (Ha)')
     plt.grid()
     plt.legend()
     plt.savefig(f'figs/{filename}', bbox_inches='tight')

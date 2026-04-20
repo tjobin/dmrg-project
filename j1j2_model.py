@@ -53,7 +53,6 @@ class j1j2_model:
             'mixer': True,
             'trunc_params': {'chi_max': chi_max, 'svd_min': 1.e-12},
             'max_E_err': 1.e-10,
-            # 'max_S_err': 1.e-6,
             'max_trunc_err': 1.e-1,
             'max_sweeps': 64,
             'active_sites': 2,
@@ -90,7 +89,7 @@ class j1j2_model:
         }
 
         # Save to file
-        with open(f'log/{filename}', 'w') as f:
+        with open(f'log_dmrg/{filename}', 'w') as f:
             json.dump(data_to_save, f, indent=4)
 
         print("\n" + "="*40)

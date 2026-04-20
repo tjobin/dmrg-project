@@ -2,118 +2,16 @@ import numpy as np
 from tenpy.networks.mps import MPS
 from tenpy.networks.mpo import MPO
 from tqdm import tqdm
-
-
-def estimate_hamiltonian_moments(
-        psi: MPS,
-        H: MPO,
-        N_s: int,
-        chi_max: int,
-        seed: int = None,
-        filename: str = None,
-        ) -> tuple[float, float, float] :
-
-    """
-    Estimates the 1st, 2nd, and 3rd actual moments of the Hamiltonian H
-    using perfect independent sampling from a given MPS psi.
-    
-    Args:
-        psi : tenpy.networks.mps.MPS, the matrix product state to sample from.
-        H : tenpy.networks.mpo.MPO, the Hamiltonian as a matrix product operator.
-        N_s : int, number of samples to generate.
-        seed : int, random seed for reproducibility, by default None.
-        filename : str, the function will write detailed sample information to 'out/{filename}.out',
-        c : float, fraction of samples to keep based on closest local energy to E_dmrg, by default 0.9.
-        
-    Returns:
-        M1: float, the estimated first moment <psi|H|psi> / <psi|psi>.
-        M2: float, the estimated second moment <psi|H^2|psi> / <psi|psi>.
-        M3: float, the estimated third moment <psi|H^3|psi> / <psi|psi>.
-    """
-
-    rng = np.random.default_rng(seed)  # Create a random number generator with the given seed for reproducibility
-    if filename is not None:
-        fout = open(f'out/{filename}.out','w')
-        fout.write("Sampled states |s> \n")
-        fout.write(f"{'Sample':>10} {'<s|psi>':>20} {'<psi|H|psi>':>20} {'<psi|H^2|psi>':>20} {'<psi|H^3|psi>':>20}\n")
-
-    # Prepare exact representations of H|psi>, H^2|psi>, and H^3|psi>.
-    # MPO.apply_naively(state) modifies the state in place without compression.
-    # This guarantees the local energies remain mathematically exact, avoiding 
-    # truncation bias in the numerator overlaps.
-    phi = psi.copy()
-    H.apply(phi, options={'compression_method' : 'zip_up', 'trunc_params' : {'chi_max' : chi_max}})
-    phi.canonical_form(renormalize=False)
-
-    local_energies_1 = []
-    local_energies_2 = []
-    local_energies_3 = []
-    
-
-    for _ in tqdm(range(N_s), desc="Sampling states"):
-        prod_state_psi, exact_overlap_psi = psi.sample_measurements(rng=rng)
-        
-        # Construct the product state MPS for the sampled configuration
-        s_psi = MPS.from_product_state(psi.sites, prod_state_psi, bc=psi.bc)
-
-        
-        # Calculate overlaps via standard tensor contractions
-        # Note: s_mps.overlap(ket) computes the inner product <s|ket>
-        overlap_0 = exact_overlap_psi        # <s|psi> is exactly calculated during sampling
-        overlap_1 = s_psi.overlap(phi) # <s|H|psi>
-
-        loc_E1 = overlap_1 / overlap_0
-
-        # Compute n-th order local energies 
-        local_energies_1.append(loc_E1) # <s|H|psi> / <s|psi>
-        local_energies_2.append(loc_E1 ** 2) # <s|H^2|psi> / <s|psi>
-
-        
-    local_energies_1 = np.array(local_energies_1)
-    local_energies_2 = np.array(local_energies_2)
-
-
-    # cleaned_local_energies_1 = apply_sampling_cutoff(local_energies_1, E_dmrg, c)
-
-    M_1 = np.mean(local_energies_1) # E[<s|H|psi> / <s|psi>] \approx <psi|H|psi> / <psi|psi>
-    M_2 = np.mean(local_energies_2)  # E[|<s|H|psi>|^2] \approx <psi|H^2|psi> / <psi|psi>
-    
-    for _ in tqdm(range(N_s), desc="Sampling states"):
-        prod_state_phi, exact_overlap_phi = phi.sample_measurements(rng=rng)
-        
-        # Construct the product state MPS for the sampled configuration
-        s_phi = MPS.from_product_state(phi.sites, prod_state_phi, bc=phi.bc)
-        
-        # Calculate overlaps via standard tensor contractions
-        # Note: s_mps.overlap(ket) computes the inner product <s|ket>
-        overlap_0 = exact_overlap_phi        # <s|phi> is exactly calculated during sampling
-        overlap_1 = s_phi.overlap(phi, ignore_form=True) # <s|H|phi>
-        
-        # Compute 3rd order local energies 
-        loc_E3 = - M_2 * overlap_1 / overlap_0
-        local_energies_3.append(loc_E3)
-
-    
-    local_energies_3 = np.array(local_energies_3)
-
-
-    # The unbiased estimators are the sample means of the local energies
-    M_3 = np.mean(local_energies_3) 
-    
-    if filename is not None:
-        fout.write(f'\n M1 = {np.real(M_1)}\n M2 = {np.real(M_2)}\n M3 = {np.real(M_3)}\n')
-        fout.close()
-    
-    # Return purely real components since H is Hermitian
-    return np.real(M_1), np.real(M_2), np.real(M_3)#, np.real(var)
+import json
+import os
 
 def estimate_hamiltonian_moments_cheap(
         psi: MPS,
         H: MPO,
         N_s: int,
         chi_max: int,
-        seed: int = None,
-        filename: str = None,
+        seed: int | None = None,
+        filename: str | None = None,
         ) -> tuple[float, float, float] :
 
     """
@@ -135,74 +33,59 @@ def estimate_hamiltonian_moments_cheap(
     """
 
     rng = np.random.default_rng(seed)  # Create a random number generator with the given seed for reproducibility
-    if filename is not None:
-        fout = open(f'out/{filename}.out','w')
-        fout.write("Sampled states |s> \n")
-        fout.write(f"{'Sample':>10} {'<s|psi>':>20} {'<psi|H|psi>':>20} {'<psi|H^2|psi>':>20} {'<psi|H^3|psi>':>20}\n")
 
-    # Prepare exact representations of H|psi>, H^2|psi>, and H^3|psi>.
-    # MPO.apply_naively(state) modifies the state in place without compression.
-    # This guarantees the local energies remain mathematically exact, avoiding 
-    # truncation bias in the numerator overlaps.
     phi = psi.copy()
     H.apply(phi, options={'compression_method' : 'zip_up', 'trunc_params' : {'chi_max' : chi_max}})
-    # H.apply_naively(phi)
-    phi.canonical_form(renormalize=False)
     
     chi = phi.copy()
     H.apply(chi, options={'compression_method' : 'zip_up', 'trunc_params' : {'chi_max' : chi_max}})
-    # H.apply_naively(chi)
-    chi.canonical_form(renormalize=False)
 
     local_energies_1 = []
     local_energies_2 = []
     local_energies_3 = []
-    
+    data_to_save = {}
 
-    for i, _ in enumerate(tqdm(range(N_s), desc="Sampling states")):
+
+    for i in tqdm(range(N_s), desc="Sampling states"):
         prod_state_psi, exact_overlap_psi = psi.sample_measurements(rng=rng)
         
         # Construct the product state MPS for the sampled configuration
         s_psi = MPS.from_product_state(psi.sites, prod_state_psi, bc=psi.bc)
 
-        
         # Calculate overlaps via standard tensor contractions
-        # Note: s_mps.overlap(ket) computes the inner product <s|ket>
-        overlap_0 = exact_overlap_psi        # <s|psi> is exactly calculated during sampling
+        overlap_0 = exact_overlap_psi  # <s|psi> is exactly calculated during sampling
         overlap_1 = s_psi.overlap(phi) # <s|H|psi>
         overlap_2 = s_psi.overlap(chi) # <s|H^2|psi>
 
         loc_E1 = overlap_1 / overlap_0
         loc_E2 = overlap_2 / overlap_0
-        
 
         # Compute n-th order local energies 
         local_energies_1.append(loc_E1) # <s|H|psi> / <s|psi>
         local_energies_2.append(loc_E2) # <s|H^2|psi> / <s|psi>
-        local_energies_3.append(loc_E1 * loc_E2) # <s|H^2|psi> / <s|psi>
-        # Note: We do not compute local_energies_3 directly since it would require H^3|psi>.
+        local_energies_3.append(loc_E1 * loc_E2) # <s|H^3|psi> / <s|psi>
 
-        # overlap_0 = exact_overlap_phi        # <s|H|psi> is exactly calculated during sampling
-        
+        data_to_save[str(i)] = {
+            "h1": float(loc_E1),
+            "h2": float(loc_E2),
+            "h3": float(loc_E1 * loc_E2)
+        }
+
+    json_filename = f'log_sampling/{filename}.json'
+    with open(json_filename, 'w') as f:
+        json.dump(data_to_save, f, indent=4)
+    
     local_energies_1 = np.array(local_energies_1)
     local_energies_2 = np.array(local_energies_2)
     local_energies_3 = np.array(local_energies_3)
 
-    # cleaned_local_energies_1 = apply_sampling_cutoff(local_energies_1, E_dmrg, c)
 
-    M_1 = np.mean(local_energies_1) # E[<s|H|psi> / <s|psi>] \approx <psi|H|psi> / <psi|psi>
-    M_2 = np.mean(local_energies_2)  # E[|<s|H|psi>|^2] \approx <psi|H^2|psi> / <psi|psi>
-    M_3 = np.mean(local_energies_3)  # E[<s|H|psi>* * <s|H^2|psi>] = E[<s|H|psi>^* <s|H^2|psi>] \approx <psi|H^3|psi> / <psi|psi>
+    M_1 = float(np.mean(local_energies_1)) # E[<s|H|psi> / <s|psi>] \approx <psi|H|psi> / <psi|psi>
+    M_2 = float(np.mean(local_energies_2))  # E[|<s|H|psi>|^2] \approx <psi|H^2|psi> / <psi|psi>
+    M_3 = float(np.mean(local_energies_3))  # E[<s|H|psi>* * <s|H^3|psi>] = E[<s|H|psi>^* <s|H^2|psi>] \approx <psi|H^3|psi> / <psi|psi>
 
-        # if filename is not None:
-        #     fout.write(f"{i:>10} {np.real(overlap_0):>20.6e} {np.real(loc_E1):>20.6e} {np.real(loc_E2):>20.6e} {np.real(loc_E1 * loc_E2):>20.6e}\n"
-    
-    if filename is not None:
-        fout.write(f'\n M1 = {np.real(M_1)}\n M2 = {np.real(M_2)}\n M3 = {np.real(M_3)}\n')
-        fout.close()
-    
     # Return purely real components since H is Hermitian
-    return np.real(M_1), np.real(M_2), np.real(M_3)#, np.real(var)
+    return M_1, M_2, M_3
 
 def clean_local_energies(E_L, E_dmrg, c):
     """
