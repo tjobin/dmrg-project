@@ -2,7 +2,7 @@ import numpy as np
 import warnings
 from tenpy.networks.mps import MPS
 from tenpy.networks.mpo import MPO
-from moments_estimator import estimate_hamiltonian_moments_cheap, get_mpo_moments_bruteforce
+from moments_estimator import estimate_hamiltonian_moments, get_mpo_moments_bruteforce
 
 
 def get_optimized_alphas(
@@ -43,16 +43,20 @@ def lanczos_step_sampled(
         H: MPO,
         N_s: int,
         chi_max: int,
+        E_ref: float,
+        c: float,
         seed: int | None = None,
-        filename: str | None = None):
+        json_filename: str | None = None):
     
-    h1, h2, h3 = estimate_hamiltonian_moments_cheap(
+    h1, h2, h3 = estimate_hamiltonian_moments(
         psi = psi,
         H = H,
         N_s = N_s,
         chi_max = chi_max,
+        E_ref = E_ref,
+        c = c,
         seed = seed,
-        filename = filename
+        json_filename = json_filename
     )
 
     alpha_p, alpha_m = get_optimized_alphas(h1, h2, h3)

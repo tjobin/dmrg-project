@@ -42,9 +42,9 @@ def main(cfg: DictConfig):
     # Run DMRG for each bond-dimension chi
     for chi_max in cfg.chi_maxs:
         print(f'\n====================================== chi_max = {chi_max} ======================================\n')  
-        E, psi = model.run(chi_max=chi_max)  
+        E, psi = model.run(chi_max=chi_max) 
+        E_alpha_sampled = E 
         psi_alpha_sampled = psi.copy() 
-        # psi_alpha_exact = psi.copy()
 
         for Ns, seed in zip(cfg.lanczos.Nss, cfg.lanczos.seeds):            # Lanczos step using the estimated moments from perfect sampling
             E_alpha_sampled, psi_alpha_sampled, alpha_star_sampled = lanczos_step_sampled(
@@ -52,25 +52,20 @@ def main(cfg: DictConfig):
                 H=H_mpo,
                 N_s=Ns,
                 chi_max=chi_max,
+                E_ref=E_alpha_sampled,
+                c=cfg.lanczos.c,
                 seed=seed,
-                filename=f'moments_chi{chi_max}_Ns{Ns}'
+                json_filename=f'sampling_chi{chi_max}_Ns{Ns}_seed{seed}_c{cfg.lanczos.c}'
             )
             psi_alpha_sampled.canonical_form()
             psi_alpha_sampled.norm = 1.0
-            
-        # E_alpha_exact, psi_alpha_exact, alpha_star_exact = lanczos_step_exact(
-        #         psi=psi_alpha_exact,
-        #         H=H_mpo
-        #     )
 
         print(f'Exact energy: {E_exact:.10f} Ha')
         print(f"DMRG energy: {E:.10f} Ha")
         print(f"Lanczos (sampled): E = {E_alpha_sampled:.10f} Ha, alpha = {alpha_star_sampled:.4f}")
-        # print(f"Lanczos (exact): E = {E_alpha_exact:.10f} Ha, alpha = {alpha_star_exact:.4f}")
 
         E_dmrg.append(E)
         El_sampled.append(E_alpha_sampled)
-        # El_exact.append(E_alpha_exact)
 
         rel_dE = (E_alpha_sampled - E_exact + 1e-12) / (E - E_exact + 1e-12)
         dE = E_alpha_sampled - E_exact
@@ -83,8 +78,8 @@ def main(cfg: DictConfig):
         }
         
     # Save plotted data to a JSON file
-    os.makedirs(f'log_lanczos/J1J2_{Lx}x{Ly}', exist_ok=True)
-    json_filename = f'log_lanczos/J1J2_{Lx}x{Ly}/data_chi{cfg.chi_maxs[0]}-{cfg.chi_maxs[-1]}_Ns{cfg.lanczos.Nss[0]}-{cfg.lanczos.Nss[-1]}.json'
+    os.makedirs(f'log_lanczos/J1J2_{Lx}x{Ly}/cleaned', exist_ok=True)
+    json_filename = f'log_lanczos/J1J2_{Lx}x{Ly}/cleaned/data_chi{cfg.chi_maxs[0]}-{cfg.chi_maxs[-1]}_Ns{Ns}_seed{seed}_c{cfg.lanczos.c}.json'
     with open(json_filename, 'w') as f:
         json.dump(data_to_save, f, indent=4)
 
@@ -95,7 +90,7 @@ def main(cfg: DictConfig):
         El_sampled,
         None,
         dim=[Lx, Ly],
-        filename=f'J1J2_{Lx}x{Ly}/rel_dE_vs_chi{cfg.chi_maxs[0]}-{cfg.chi_maxs[-1]}_Ns{cfg.lanczos.Nss[0]}-{cfg.lanczos.Nss[-1]}'
+        filename=f'J1J2_{Lx}x{Ly}/cleaned/rel_dE_vs_chi{cfg.chi_maxs[0]}-{cfg.chi_maxs[-1]}_Ns{cfg.lanczos.Nss}_c{cfg.lanczos.c}.png'
     )
     plot_dE_vs_chi(
         cfg.chi_maxs,
@@ -104,7 +99,7 @@ def main(cfg: DictConfig):
         El_sampled,
         None,
         dim=[Lx, Ly],
-        filename=f'J1J2_{Lx}x{Ly}/dE_vs_chi{cfg.chi_maxs[0]}-{cfg.chi_maxs[-1]}_Ns{cfg.lanczos.Nss[0]}-{cfg.lanczos.Nss[-1]}'
+        filename=f'J1J2_{Lx}x{Ly}/cleaned/dE_vs_chi{cfg.chi_maxs[0]}-{cfg.chi_maxs[-1]}_Ns{cfg.lanczos.Nss}_c{cfg.lanczos.c}.png'
     )
 
 if __name__ == "__main__":

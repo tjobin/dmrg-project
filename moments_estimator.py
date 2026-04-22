@@ -5,13 +5,15 @@ from tqdm import tqdm
 import json
 import os
 
-def estimate_hamiltonian_moments_cheap(
+def estimate_hamiltonian_moments(
         psi: MPS,
         H: MPO,
         N_s: int,
         chi_max: int,
+        E_ref: float,
+        c: float = 0.85,
         seed: int | None = None,
-        filename: str | None = None,
+        json_filename: str | None = None,
         ) -> tuple[float, float, float] :
 
     """
@@ -23,7 +25,7 @@ def estimate_hamiltonian_moments_cheap(
         H : tenpy.networks.mpo.MPO, the Hamiltonian as a matrix product operator.
         N_s : int, number of samples to generate.
         seed : int, random seed for reproducibility, by default None.
-        filename : str, the function will write detailed sample information to 'out/{filename}.out',
+        json_filename : str, the function will write detailed sample information to 'log_sampling/{filename}.json',
         c : float, fraction of samples to keep based on closest local energy to E_dmrg, by default 0.9.
         
     Returns:
@@ -44,7 +46,6 @@ def estimate_hamiltonian_moments_cheap(
     local_energies_2 = []
     local_energies_3 = []
     data_to_save = {}
-
 
     for i in tqdm(range(N_s), desc="Sampling states"):
         prod_state_psi, exact_overlap_psi = psi.sample_measurements(rng=rng)
@@ -71,7 +72,7 @@ def estimate_hamiltonian_moments_cheap(
             "h3": float(loc_E1 * loc_E2)
         }
 
-    json_filename = f'log_sampling/{filename}.json'
+    json_filename = f'log_sampling/cleaned/{json_filename}.json'
     with open(json_filename, 'w') as f:
         json.dump(data_to_save, f, indent=4)
     
@@ -79,51 +80,20 @@ def estimate_hamiltonian_moments_cheap(
     local_energies_2 = np.array(local_energies_2)
     local_energies_3 = np.array(local_energies_3)
 
+    cleaned_local_energies_1, cleaned_local_energies_2, cleaned_local_energies_3 = apply_coordinated_cutoff(
+        local_energies_1,
+        local_energies_2,
+        local_energies_3,
+        E_ref,
+        c=c)
 
-    M_1 = float(np.mean(local_energies_1)) # E[<s|H|psi> / <s|psi>] \approx <psi|H|psi> / <psi|psi>
-    M_2 = float(np.mean(local_energies_2))  # E[|<s|H|psi>|^2] \approx <psi|H^2|psi> / <psi|psi>
-    M_3 = float(np.mean(local_energies_3))  # E[<s|H|psi>* * <s|H^3|psi>] = E[<s|H|psi>^* <s|H^2|psi>] \approx <psi|H^3|psi> / <psi|psi>
+
+    M_1 = float(np.mean(cleaned_local_energies_1)) # E[<s|H|psi> / <s|psi>] \approx <psi|H|psi> / <psi|psi>
+    M_2 = float(np.mean(cleaned_local_energies_2))  # E[|<s|H|psi>|^2] \approx <psi|H^2|psi> / <psi|psi>
+    M_3 = float(np.mean(cleaned_local_energies_3))  # E[<s|H|psi>* * <s|H^3|psi>] = E[<s|H|psi>^* <s|H^2|psi>] \approx <psi|H^3|psi> / <psi|psi>
 
     # Return purely real components since H is Hermitian
     return M_1, M_2, M_3
-
-def clean_local_energies(E_L, E_dmrg, c):
-    """
-    Applies a symmetric cutoff to local energies and local second moments 
-    based on a cutoff ratio c.
-    
-    Parameters
-    ----------
-    E_L : np.ndarray
-        Array of first-order local energies.
-    E2_L : np.ndarray
-        Array of second-order local energies (local second moments).
-    E_dmrg : float
-        The reference exact energy from the DMRG sweep.
-    c : float
-        The cutoff ratio (e.g., 0.90 for 90%).
-        
-    Returns
-    -------
-    tuple of np.ndarray
-        (cleaned_E_L, cleaned_E2_L)
-    """
-    # 1. Calculate the deviations from the respective reference values
-    E2_ref = E_dmrg ** 2
-    eps = E_L - E_dmrg
-    
-    # 2. Determine the maximum allowed deviations (epsilon_max and eta_max).
-    # Taking the c-th percentile of the absolute deviations guarantees that
-    # exactly a fraction 'c' of the original samples fall within the bounds.
-    eps_max = np.percentile(np.abs(eps), c * 100)
-    
-    # 3. Apply the piecewise function f(epsilon) to clip extreme tails symmetrically
-    eps_clipped = np.clip(eps, -eps_max, eps_max)
-    
-    # 4. Reconstruct the bounded local energies
-    E_L_cleaned = E_dmrg + eps_clipped
-    
-    return E_L_cleaned
 
 def get_mpo_moments_bruteforce(
         psi: MPS,
@@ -143,44 +113,35 @@ def get_mpo_moments_bruteforce(
 
     return h1, h2, h3
 
-import numpy as np
-
-def apply_sampling_cutoff(local_energies, E_dmrg, c):
+def apply_coordinated_cutoff(
+        h1: np.ndarray,
+        h2: np.ndarray,
+        h3: np.ndarray,
+        E_ref: float,
+        c: float
+        ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Applies the symmetric piecewise cutoff function to an array of sampled 
-    local energies to mitigate fat-tailed fluctuations.
-    
-    Parameters
-    ----------
-    local_energies : numpy.ndarray
-        1D array of sampled local energies (size N_s).
-    E_dmrg : float
-        The reference ground-state energy obtained from the DMRG sweep.
-    c : float
-        The cutoff ratio (between 0.0 and 1.0), representing the fraction 
-        of local energies left unchanged.
-        
-    Returns
-    -------
-    numpy.ndarray
-        The cleaned array of local energies after applying the cutoff bias.
+    Applies a coordinated sample-wise dampening to all three moments,
+    maintaining the array size so np.mean() computes the correct normalization.
     """
-    # Calculate the deviations from the reference DMRG energy
-    deviations = local_energies - E_dmrg
+    # 1. Calculate the deviation of the primary energy
+    eps = h1 - E_ref
+    eps_max = np.percentile(np.abs(eps), c * 100)
     
-    # The cutoff is based on the magnitude of the deviations.
-    # To leave a fraction 'c' of the data untouched, we find the c-th 
-    # quantile (e.g., the 90th percentile for c=0.9) of the absolute deviations.
-    abs_deviations = np.abs(deviations)
-    epsilon_max = np.percentile(abs_deviations, c * 100)
+    # 2. Calculate a sample-wise dampening factor 'alpha'
+    # For normal samples, alpha = 1.0
+    # For outliers, alpha scales the deviation down to exactly eps_max
+    alpha = np.where(np.abs(eps) > eps_max, eps_max / (np.abs(eps) + 1e-12), 1.0)
     
-    # Apply the piecewise function f(epsilon) to clip the tails symmetrically
-    # f(epsilon) = -epsilon_max if epsilon < -epsilon_max
-    # f(epsilon) = epsilon_max if epsilon > epsilon_max
-    # f(epsilon) = epsilon otherwise
-    clipped_deviations = np.clip(deviations, -epsilon_max, epsilon_max)
+    # 3. Clip h1 (mathematically identical to the paper's piecewise function)
+    h1_clean = E_ref + alpha * eps
     
-    # Reconstruct the cleaned local energies
-    cleaned_local_energies = E_dmrg + clipped_deviations
+    # 4. Clip h2 and h3 coordinately by dampening their deviations 
+    # from their robust centers (medians) using the exact same alpha factor.
+    med_h2 = np.median(h2)
+    med_h3 = np.median(h3)
     
-    return cleaned_local_energies
+    h2_clean = med_h2 + alpha * (h2 - med_h2)
+    h3_clean = med_h3 + alpha * (h3 - med_h3)
+    
+    return h1_clean, h2_clean, h3_clean
