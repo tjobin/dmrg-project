@@ -1,4 +1,3 @@
-import numpy as np
 import logging
 import json
 from tenpy.networks.mps import MPS
@@ -40,7 +39,7 @@ class j1j2_model:
         model = self.model
 
         # Optional: print the new MPO bond dimension to see the improvement
-        logging.info(f"MPO bond dimensions after compression: {model.H_MPO.chi}")
+        # logging.info(f"MPO bond dimensions after compression: {model.H_MPO.chi}")
         # -----------------------------------------
 
         # 2. Initialize MPS
