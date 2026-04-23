@@ -1,8 +1,6 @@
 from tenpy.models import Model
 from tenpy.algorithms.exact_diag import ExactDiag
-from tenpy.networks.mps import MPS
 import numpy as np
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 from typing import Any
 
@@ -15,6 +13,7 @@ EXACT_ENERGIES_J1J2_torus = {
     (3, 3): -3.484501,
     (3, 4): -6.2043858259,
     (4, 4): -8.4579233514,
+    (6, 6): -18.13714754
     }
 EXACT_ENERGIES_J1J2_cylinder = {
     (3, 3): -3.7649701644,
