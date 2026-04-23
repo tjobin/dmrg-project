@@ -46,7 +46,7 @@ def lanczos_step_sampled(
         E_ref: float,
         c: float,
         seed: int | None = None,
-        json_filename: str | None = None):
+        json_filepath: str | None = None):
     
     h1, h2, h3 = estimate_hamiltonian_moments(
         psi = psi,
@@ -56,7 +56,7 @@ def lanczos_step_sampled(
         E_ref = E_ref,
         c = c,
         seed = seed,
-        json_filename = json_filename
+        json_filepath = json_filepath
     )
 
     alpha_p, alpha_m = get_optimized_alphas(h1, h2, h3)

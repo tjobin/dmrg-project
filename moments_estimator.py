@@ -13,7 +13,7 @@ def estimate_hamiltonian_moments(
         E_ref: float,
         c: float = 0.85,
         seed: int | None = None,
-        json_filename: str | None = None,
+        json_filepath: str | None = None,
         ) -> tuple[float, float, float] :
 
     """
@@ -72,8 +72,10 @@ def estimate_hamiltonian_moments(
             "h3": float(loc_E1 * loc_E2)
         }
 
-    json_filename = f'log_sampling/cleaned/{json_filename}.json'
-    with open(json_filename, 'w') as f:
+
+    json_filename = f'sampling_chi{chi_max}_Ns{N_s}_seed{seed}_c{c}.json'
+    os.makedirs(f'{json_filepath}', exist_ok=True)
+    with open(f'{json_filepath}{json_filename}', 'w') as f:
         json.dump(data_to_save, f, indent=4)
     
     local_energies_1 = np.array(local_energies_1)

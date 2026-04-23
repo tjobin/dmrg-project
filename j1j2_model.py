@@ -1,5 +1,6 @@
 import logging
 import json
+import os
 from tenpy.networks.mps import MPS
 from tenpy.models.spins import SpinModel
 from tenpy.algorithms import dmrg
@@ -7,17 +8,19 @@ from tenpy.algorithms import dmrg
 logging.basicConfig(level=logging.INFO)
 
 class j1j2_model:
-    def __init__(self, Lx, Ly, j1, j2):
+    def __init__(self, Lx, Ly, j1, j2, bc_x, bc_y):
         self.Lx = Lx
         self.Ly = Ly
         self.j1 = j1
         self.j2 = j2
+        self.bc_x = bc_x
+        self.bc_y = bc_y
         self.model_params = {
             'lattice': 'Square',
             'Lx': self.Lx, 'Ly': self.Ly, 'S': 0.5,
             'conserve': 'Sz',
             'bc_MPS': 'finite',
-            'bc_x': 'periodic', 'bc_y': 'open',
+            'bc_x': self.bc_x, 'bc_y': self.bc_y,
             'Jx': self.j1, 'Jy': self.j1, 'Jz': self.j1,
         }
         model = SpinModel(self.model_params)
@@ -34,7 +37,12 @@ class j1j2_model:
         
     def run(self, chi_max):
         # Dynamic filename based on parameters
-        filename = f"j1j22_Lx={self.Lx}_Ly={self.Ly}_J1={self.j1}_J2={self.j2}_chi={chi_max}.json"
+        if self.bc_x == 'periodic' and self.bc_y == 'periodic':
+            lattice = f'square_{self.Lx}x{self.Ly}_torus'
+        elif self.bc_x == 'periodic' and self.bc_y == 'open':
+            lattice = f'square_{self.Lx}x{self.Ly}_cylinder'
+        filepath = f'log_dmrg/J1J2_{self.Lx}x{self.Ly}_{lattice}/cleaned/'
+        filename = f"DMRG_chi={chi_max}.json"
         
         model = self.model
 
@@ -88,7 +96,8 @@ class j1j2_model:
         }
 
         # Save to file
-        with open(f'log_dmrg/{filename}', 'w') as f:
+        os.makedirs(filepath, exist_ok=True)
+        with open(f'{filepath}{filename}', 'w') as f:
             json.dump(data_to_save, f, indent=4)
 
         print("\n" + "="*40)
@@ -98,5 +107,3 @@ class j1j2_model:
         print("="*40)
         
         return energy, psi
-
-
