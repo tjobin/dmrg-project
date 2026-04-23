@@ -28,7 +28,6 @@ def plot_rel_dE_vs_chi(
     plt.grid()
     plt.legend()
     plt.savefig(f'figs/{filename}', bbox_inches='tight')
-    plt.show()
 
 def plot_dE_vs_chi(
         chi: list[int],
@@ -53,7 +52,6 @@ def plot_dE_vs_chi(
     plt.grid()
     plt.legend()
     plt.savefig(f'figs/{filename}', bbox_inches='tight')
-    plt.show()
 
 def plot_variance_vs_samples(
         vars_per_c: list,
