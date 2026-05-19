@@ -4,6 +4,7 @@ from tenpy.networks.mpo import MPO
 from tqdm import tqdm
 import json
 import os
+from joblib import Parallel, delayed
 
 def estimate_hamiltonian_moments(
         psi: MPS,
@@ -13,7 +14,7 @@ def estimate_hamiltonian_moments(
         E_ref: float,
         c: float = 0.85,
         seed: int | None = None,
-        json_filepath: str | None = None,
+        sampling_filepath: str | None = None,
         ) -> tuple[float, float, float] :
 
     """
@@ -25,7 +26,7 @@ def estimate_hamiltonian_moments(
         H : tenpy.networks.mpo.MPO, the Hamiltonian as a matrix product operator.
         N_s : int, number of samples to generate.
         seed : int, random seed for reproducibility, by default None.
-        json_filename : str, the function will write detailed sample information to 'log_sampling/{filename}.json',
+        sampling_filepath : str, the function will write detailed sample information to 'log_sampling/{filename}.json',
         c : float, fraction of samples to keep based on closest local energy to E_dmrg, by default 0.9.
         
     Returns:
@@ -34,53 +35,57 @@ def estimate_hamiltonian_moments(
         M3: float, the estimated third moment <psi|H^3|psi> / <psi|psi>.
     """
 
-    rng = np.random.default_rng(seed)  # Create a random number generator with the given seed for reproducibility
-
     phi = psi.copy()
     H.apply(phi, options={'compression_method' : 'zip_up', 'trunc_params' : {'chi_max' : chi_max}})
     
     chi = phi.copy()
     H.apply(chi, options={'compression_method' : 'zip_up', 'trunc_params' : {'chi_max' : chi_max}})
 
-    local_energies_1 = []
-    local_energies_2 = []
-    local_energies_3 = []
+    local_energies_1 = np.zeros(N_s)
+    local_energies_2 = np.zeros(N_s)
+    local_energies_3 = np.zeros(N_s)
     data_to_save = {}
 
-    for i in tqdm(range(N_s), desc="Sampling states"):
-        prod_state_psi, exact_overlap_psi = psi.sample_measurements(rng=rng)
+    def compute_sample(i):
+        # Create an independent random number generator for this sample
+        local_rng = np.random.default_rng((seed + i) if seed is not None else None)
+        
+        prod_state_psi, exact_overlap_psi = psi.sample_measurements(rng=local_rng, complex_amplitude=True)
         
         # Construct the product state MPS for the sampled configuration
-        s_psi = MPS.from_product_state(psi.sites, prod_state_psi, bc=psi.bc)
+        s_psi = MPS.from_product_state(psi.sites, prod_state_psi, bc=psi.bc, unit_cell_width=psi.unit_cell_width)
 
         # Calculate overlaps via standard tensor contractions
         overlap_0 = exact_overlap_psi  # <s|psi> is exactly calculated during sampling
         overlap_1 = s_psi.overlap(phi) # <s|H|psi>
         overlap_2 = s_psi.overlap(chi) # <s|H^2|psi>
 
-        loc_E1 = overlap_1 / overlap_0
-        loc_E2 = overlap_2 / overlap_0
+        loc_E1 = np.real(overlap_1 / overlap_0)
+        loc_E2 = np.real(overlap_2 / overlap_0)
+        loc_E3 = loc_E1 * loc_E2
+        
+        return i, float(loc_E1), float(loc_E2), float(loc_E3)
 
-        # Compute n-th order local energies 
-        local_energies_1.append(loc_E1) # <s|H|psi> / <s|psi>
-        local_energies_2.append(loc_E2) # <s|H^2|psi> / <s|psi>
-        local_energies_3.append(loc_E1 * loc_E2) # <s|H^3|psi> / <s|psi>
+    # Use process-based parallelism (loky) to completely bypass the Python GIL.
+    # returning as a generator allows tqdm to track actual job completions!
+    parallel_task = Parallel(n_jobs=-1, backend="loky", return_as="generator")(
+        delayed(compute_sample)(i) for i in range(N_s)
+    )
 
-        data_to_save[str(i)] = {
-            "h1": float(loc_E1),
-            "h2": float(loc_E2),
-            "h3": float(loc_E1 * loc_E2)
-        }
+    for i, loc_E1, loc_E2, loc_E3 in tqdm(parallel_task, total=N_s, desc="Sampling states"):
+        local_energies_1[i] = loc_E1
+        local_energies_2[i] = loc_E2
+        local_energies_3[i] = loc_E3
+        data_to_save[str(i)] = {"h1": loc_E1, "h2": loc_E2, "h3": loc_E3}
 
-
-    json_filename = f'sampling_chi{chi_max}_Ns{N_s}_seed{seed}_c{c}.json'
-    os.makedirs(f'{json_filepath}', exist_ok=True)
-    with open(f'{json_filepath}{json_filename}', 'w') as f:
+    json_filename = f'sampling_chi{chi_max}_Ns{N_s}_seed{seed}.json'
+    os.makedirs(f'{sampling_filepath}', exist_ok=True)
+    with open(f'{sampling_filepath}{json_filename}', 'w') as f:
         json.dump(data_to_save, f, indent=4)
     
-    local_energies_1 = np.array(local_energies_1)
-    local_energies_2 = np.array(local_energies_2)
-    local_energies_3 = np.array(local_energies_3)
+    # cleaned_local_energies_1 = np.array(local_energies_1)
+    # cleaned_local_energies_2 = np.array(local_energies_2)
+    # cleaned_local_energies_3 = np.array(local_energies_3)
 
     cleaned_local_energies_1, cleaned_local_energies_2, cleaned_local_energies_3 = apply_coordinated_cutoff(
         local_energies_1,
@@ -93,7 +98,6 @@ def estimate_hamiltonian_moments(
     M_1 = float(np.mean(cleaned_local_energies_1)) # E[<s|H|psi> / <s|psi>] \approx <psi|H|psi> / <psi|psi>
     M_2 = float(np.mean(cleaned_local_energies_2))  # E[|<s|H|psi>|^2] \approx <psi|H^2|psi> / <psi|psi>
     M_3 = float(np.mean(cleaned_local_energies_3))  # E[<s|H|psi>* * <s|H^3|psi>] = E[<s|H|psi>^* <s|H^2|psi>] \approx <psi|H^3|psi> / <psi|psi>
-
     # Return purely real components since H is Hermitian
     return M_1, M_2, M_3
 
