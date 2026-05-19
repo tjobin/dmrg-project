@@ -4,8 +4,8 @@ from j1j2_model import j1j2_model
 from _plot import plot_dE_vs_chi, plot_rel_dE_vs_chi
 from utils import get_exact_psi_and_E, EXACT_ENERGIES_J1J2_cylinder, EXACT_ENERGIES_J1J2_torus, test_alphas
 import hydra
+import logging
 from omegaconf import DictConfig, OmegaConf
-import json
 import os
 import random
 import numpy as np
@@ -15,6 +15,8 @@ import numpy as np
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def test(cfg: DictConfig):
 
+    logger = logging.getLogger(__name__)
+
     assert len(cfg.lanczos.Nss) == len(cfg.lanczos.seeds), "Length of Nss and seeds must be the same"
     
     # Set global seeds for reproducibility
@@ -22,7 +24,7 @@ def test(cfg: DictConfig):
     random.seed(global_seed)
     np.random.seed(global_seed)
 
-    print(OmegaConf.to_yaml(cfg))
+    logger.info("Configuration:\n%s", OmegaConf.to_yaml(cfg))
 
     Lx = cfg.system.Lx
     Ly = cfg.system.Ly
@@ -43,21 +45,18 @@ def test(cfg: DictConfig):
     ## Lists to store raw DMRG energies and Lanczos-optimized energies for each chi value
     E_dmrg = []
     El_sampled = []
-    data_to_save = {}
     sub_filepath = f'J1J2_{lattice}/c={cfg.lanczos.c}'
     dmrg_geom_filepath = f'J1J2_{lattice}'
-    dmrg_energies_summary = {}
 
     model = j1j2_model(Lx=Lx, Ly=Ly, j1=j1, j2=j2, bc_x=bc_x, bc_y=bc_y)
     H_mpo = model.get_mpo()
+    logger.info("Exact energy from exact diagonalization: %.10f Ha", E_exact)
 
-    # print(f"Exact energy from exact diagonalization: {E_exact:.10f} Ha")
     # Run DMRG for each bond-dimension chi
     for chi_max in cfg.dmrg.chi_maxs:
-        print(f'\n====================================== chi_max = {chi_max} ======================================\n')  
+        logger.info('\n====================================== chi_max = %d ======================================\n', chi_max)  
         dmrg_filepath = f'log_dmrg/{dmrg_geom_filepath}'
         E, psi = model.run(chi_max=chi_max, dmrg_filepath=dmrg_filepath) 
-        dmrg_energies_summary[str(chi_max)] = E
 
         E_alpha_sampled = E 
         psi.norm = 1.0
@@ -65,15 +64,6 @@ def test(cfg: DictConfig):
         E_dmrg.append(E)
         El_sampled.append(E_alpha_sampled)
 
-        rel_dE = (E_alpha_sampled - E_exact + 1e-12) / (E - E_exact + 1e-12)
-        dE = E_alpha_sampled - E_exact
-        data_to_save[str(chi_max)] = {
-            "E_exact": float(E_exact),
-            "E_dmrg": float(E),
-            "El_sampled": float(E_alpha_sampled),
-            "rel_dE": float(rel_dE),
-            "dE": float(dE)
-        }
         alphas = np.linspace(-0.5, 0.5, 500)
 
         E_alphas_vs_Ns = []
@@ -90,13 +80,13 @@ def test(cfg: DictConfig):
                 E_ref = E,
                 c = cfg.lanczos.c,
                 seed = seed,
-                sampling_filepath = f'log_sampling/test/{sub_filepath}/c={cfg.lanczos.c}/chi={chi_max}/'
+                sampling_filepath = f'log_sampling/test/{sub_filepath}/chi={chi_max}/'
             )
             E_alphas_vs_Ns.append(E_alpha_star)
             last_alpha_star = alpha_star
             last_E_alpha_star = E_alpha_star
             last_h1, last_h2, last_h3 = h1, h2, h3
-            print(f"Ns: {Ns} | Optimized alpha: {alpha_star:.4f} | E_alpha: {E_alpha_star:.10f} Ha")
+            logger.info("Ns: %d | Optimized alpha: %.4f | E_alpha: %.10f Ha", Ns, alpha_star, E_alpha_star)
 
         # Compute exact scan over alphas
         cache_dir = 'log_test_alphas'
