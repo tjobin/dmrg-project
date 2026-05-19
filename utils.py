@@ -3,6 +3,8 @@ from tenpy.algorithms.exact_diag import ExactDiag
 import numpy as np
 from tqdm import tqdm
 from typing import Any
+import os
+import json
 
 # exact energies for quick reference (Lx, Ly) -> E_exact
 EXACT_ENERGIES_BOSEHUBBARD = {
@@ -44,13 +46,24 @@ def get_exact_psi_and_E(
     E_exact, psi_exact = exact_out[0], exact_out[1]
     return psi_exact, E_exact
 
-def test_alphas(alphas, psii, H_mpo):
-    phi_1 = psii.copy()
-    H_mpo.apply_naively(phi_1)
+def test_alphas(alphas, psi, H_mpo, cache_filepath: str | None = None):
+    if cache_filepath is not None and os.path.exists(cache_filepath):
+        print(f"Loading cached E_alphas from {cache_filepath}")
+        with open(cache_filepath, 'r') as f:
+            data = json.load(f)
+            return data['E_alphas']
+
+    phi = psi.copy()
+    H_mpo.apply_naively(phi)
     E_alphas = []
     for alpha in tqdm(alphas):
-        psi_alpha = psii.add(other=phi_1, alpha=1.0, beta=alpha)
-        E_alpha = np.real(H_mpo.expectation_value(psi=psi_alpha))
+        psi_alpha = psi.add(other=phi, alpha=1.0, beta=alpha)
+        E_alpha = float(np.real(H_mpo.expectation_value(psi=psi_alpha)))
         E_alphas.append(E_alpha)
+        
+    if cache_filepath is not None:
+        os.makedirs(os.path.dirname(cache_filepath), exist_ok=True)
+        with open(cache_filepath, 'w') as f:
+            json.dump({'alphas': list(alphas), 'E_alphas': E_alphas}, f, indent=4)
+            
     return E_alphas
-

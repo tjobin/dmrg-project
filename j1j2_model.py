@@ -1,11 +1,8 @@
-import logging
 import json
 import os
 from tenpy.networks.mps import MPS
 from tenpy.models.spins import SpinModel
 from tenpy.algorithms import dmrg
-
-logging.basicConfig(level=logging.INFO)
 
 class j1j2_model:
     def __init__(self, Lx, Ly, j1, j2, bc_x, bc_y):
@@ -35,14 +32,7 @@ class j1j2_model:
     def get_mpo(self):
         return self.model.H_MPO
         
-    def run(self, chi_max):
-        # Dynamic filename based on parameters
-        if self.bc_x == 'periodic' and self.bc_y == 'periodic':
-            lattice = f'square_{self.Lx}x{self.Ly}_torus'
-        elif self.bc_x == 'periodic' and self.bc_y == 'open':
-            lattice = f'square_{self.Lx}x{self.Ly}_cylinder'
-        filepath = f'log_dmrg/J1J2_{self.Lx}x{self.Ly}_{lattice}/cleaned/'
-        filename = f"DMRG_chi={chi_max}.json"
+    def run(self, chi_max, dmrg_filepath):
         
         model = self.model
 
@@ -53,7 +43,10 @@ class j1j2_model:
         # 2. Initialize MPS
         n_sites = model.lat.N_sites
         psi = MPS.from_product_state(model.lat.mps_sites(), 
-                                    (['up', 'down'] * (n_sites // 2 + 1))[:n_sites])
+                                    (['up', 'down'] * (n_sites // 2 + 1))[:n_sites],
+                                    bc=model.lat.bc_MPS,
+                                    unit_cell_width=n_sites
+                                    )
 
         # 3. DMRG Settings
         dmrg_params = {
@@ -96,12 +89,12 @@ class j1j2_model:
         }
 
         # Save to file
-        os.makedirs(filepath, exist_ok=True)
-        with open(f'{filepath}{filename}', 'w') as f:
+        os.makedirs(dmrg_filepath, exist_ok=True)
+        with open(f'{dmrg_filepath}/DMRG_chi={chi_max}.json', 'w') as f:
             json.dump(data_to_save, f, indent=4)
 
         print("\n" + "="*40)
-        print(f"Results saved to: {filename}")
+        print(f"Results saved to: {dmrg_filepath}/DMRG_chi={chi_max}.json")
         print(f"Final Energy:     {energy:.12f}")
         print(f"Final V-score:    {v_score:.6e}")
         print("="*40)
