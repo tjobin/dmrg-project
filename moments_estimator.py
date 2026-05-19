@@ -35,11 +35,11 @@ def estimate_hamiltonian_moments(
         M3: float, the estimated third moment <psi|H^3|psi> / <psi|psi>.
     """
 
-    phi = psi.copy()
-    H.apply(phi, options={'compression_method' : 'zip_up', 'trunc_params' : {'chi_max' : chi_max}})
+    # phi = psi.copy()
+    # H.apply(phi, options={'compression_method' : 'zip_up', 'trunc_params' : {'chi_max' : chi_max}})
     
-    chi = phi.copy()
-    H.apply(chi, options={'compression_method' : 'zip_up', 'trunc_params' : {'chi_max' : chi_max}})
+    # chi = phi.copy()
+    # H.apply(chi, options={'compression_method' : 'zip_up', 'trunc_params' : {'chi_max' : chi_max}})
 
     local_energies_1 = np.zeros(N_s)
     local_energies_2 = np.zeros(N_s)
@@ -54,18 +54,32 @@ def estimate_hamiltonian_moments(
         
         # Construct the product state MPS for the sampled configuration
         s_psi = MPS.from_product_state(psi.sites, prod_state_psi, bc=psi.bc, unit_cell_width=psi.unit_cell_width)
+        # 1. Apply H to the product state exactly (chi becomes ~14)
+        H_s = s_psi.copy()
+        H.apply_naively(H_s) 
+
+        # 2. Apply H again exactly (chi becomes ~196)
+        H2_s = H_s.copy()
+        H.apply_naively(H2_s) 
+
+        # 3. Compute exact overlaps
+        # A.overlap(B) in TeNPy computes <A|B>. 
+        # H_s.overlap(psi) computes <H s | psi> = <s | H^\dagger | psi> = <s | H | psi>
+        overlap_0 = exact_overlap_psi
+        overlap_1 = H_s.overlap(psi) 
+        overlap_2 = H2_s.overlap(psi)
 
         # Calculate overlaps via standard tensor contractions
-        overlap_0 = exact_overlap_psi  # <s|psi> is exactly calculated during sampling
-        overlap_1 = s_psi.overlap(phi) # <s|H|psi>
-        overlap_2 = s_psi.overlap(chi) # <s|H^2|psi>
+        # overlap_0 = exact_overlap_psi  # <s|psi> is exactly calculated during sampling
+        # overlap_1 = s_psi.overlap(phi) # <s|H|psi>
+        # overlap_2 = s_psi.overlap(chi) # <s|H^2|psi>
 
         loc_E1 = np.real(overlap_1 / overlap_0)
         loc_E2 = np.real(overlap_2 / overlap_0)
-        loc_E3 = loc_E1 * loc_E2
-        
-        return i, float(loc_E1), float(loc_E2), float(loc_E3)
+        loc_E3 = np.conj(loc_E1) * loc_E2        
 
+        return i, float(np.real(loc_E1)), float(np.real(loc_E2)), float(np.real(loc_E3))
+    
     # Use process-based parallelism (loky) to completely bypass the Python GIL.
     # returning as a generator allows tqdm to track actual job completions!
     parallel_task = Parallel(n_jobs=-1, backend="loky", return_as="generator")(
