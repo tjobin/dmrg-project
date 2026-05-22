@@ -1,5 +1,7 @@
 import json
 import os
+import time
+import resource
 from tenpy.networks.mps import MPS
 from tenpy.models.spins import SpinModel
 from tenpy.algorithms import dmrg
@@ -31,14 +33,9 @@ class j1j2_model:
         
     def get_mpo(self):
         return self.model.H_MPO
-        
-    def run(self, chi_max, dmrg_filepath):
-        
-        model = self.model
 
-        # Optional: print the new MPO bond dimension to see the improvement
-        # logging.info(f"MPO bond dimensions after compression: {model.H_MPO.chi}")
-        # -----------------------------------------
+    def run(self, chi_max, dmrg_filepath):
+        model = self.model
 
         # 2. Initialize MPS
         n_sites = model.lat.N_sites
@@ -59,13 +56,22 @@ class j1j2_model:
             'combine': True,
         }
 
-        # 4. Run
+        # 4. Run and Track Time
+        start_time = time.perf_counter()
+        
         info = dmrg.run(psi, model, dmrg_params)
         
-        # 5. Compute Final Stats
+        end_time = time.perf_counter()
+        wall_time_seconds = end_time - start_time
+        
+        # 5. Compute Final Stats & Peak Memory
         energy = info['E']
         variance = model.H_MPO.variance(psi)
         v_score = n_sites * variance / (energy**2)
+        
+        # MacOS ru_maxrss returns bytes. Divide by 1024^2 for MB.
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        peak_memory_mb = usage.ru_maxrss / (1024 * 1024)
         
         # 6. Extract and format sweep statistics
         stats = info.get('sweep_statistics', {})
@@ -84,7 +90,9 @@ class j1j2_model:
                 "energy": float(energy),
                 "v_score": float(v_score),
                 "variance": float(variance),
-                "sweeps_done": len(stats.get('E', []))
+                "sweeps_done": len(stats.get('E', [])),
+                "wall_time_seconds": float(wall_time_seconds),
+                "peak_memory_mb": float(peak_memory_mb)
             }
         }
 
@@ -96,7 +104,8 @@ class j1j2_model:
         print("\n" + "="*40)
         print(f"Results saved to: {dmrg_filepath}/DMRG_chi={chi_max}.json")
         print(f"Final Energy:     {energy:.12f}")
-        print(f"Final V-score:    {v_score:.6e}")
+        print(f"Wall Time:        {wall_time_seconds:.2f} s")
+        print(f"Peak Memory:      {peak_memory_mb:.2f} MB")
         print("="*40)
         
-        return energy, psi
+        return energy, psi, wall_time_seconds, peak_memory_mb

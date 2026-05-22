@@ -1,5 +1,7 @@
 import numpy as np
 import warnings
+import time
+import resource
 from tenpy.networks.mps import MPS
 from tenpy.networks.mpo import MPO
 from moments_estimator import estimate_hamiltonian_moments, get_mpo_moments_bruteforce
@@ -14,7 +16,9 @@ def lanczos_step_sampled_v2(
         c: float,
         seed: int | None = None,
         sampling_filepath: str | None = None
-) -> tuple[float, float, float, float, float] :
+) -> tuple[float, float, float, float, float, float, float] :
+    
+    start_time = time.perf_counter()
     
     h1, h2, h3 = estimate_hamiltonian_moments(
         psi = psi,
@@ -29,7 +33,14 @@ def lanczos_step_sampled_v2(
     
     E_alpha, alpha_star = get_optimized_energy_and_alpha(h1, h2, h3)
 
-    return E_alpha, alpha_star, h1, h2, h3
+    end_time = time.perf_counter()
+    wall_time_seconds = end_time - start_time
+
+    # MacOS ru_maxrss returns bytes. Divide by 1024^2 for MB.
+    usage = resource.getrusage(resource.RUSAGE_SELF)
+    peak_memory_mb = usage.ru_maxrss / (1024 * 1024)
+
+    return E_alpha, alpha_star, h1, h2, h3, wall_time_seconds, peak_memory_mb
 
 
 def lanczos_step_sampled(
