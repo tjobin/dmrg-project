@@ -193,6 +193,7 @@ def plot_Ealpha_vs_Ns(
 # Append to _plot.py
 def plot_E_vs_time(
         chi_maxs: list[int],
+        E_exact: float,
         E_dmrg: list[float],
         El_alpha: list[float],
         T_dmrg: list[float],
@@ -205,22 +206,25 @@ def plot_E_vs_time(
     """
     fig, ax = plt.subplots(figsize=(9, 6))
     
+    y_dmrg = np.array(E_dmrg) - E_exact
+    y_sampled = np.array(El_alpha) - E_exact
+
     # Plot DMRG scaling curve
-    ax.plot(T_dmrg, E_dmrg, marker='s', linestyle='--', color='k', label='Standard DMRG')
+    ax.plot(T_dmrg, y_dmrg, marker='s', linestyle='--', color='k', label='Standard DMRG')
     
     # Plot Lanczos scaling curve
-    ax.plot(T_total, El_alpha, marker='o', linestyle='-', color='tab:orange', label='DMRG + Lanczos (Sampled)')
+    ax.plot(T_total, y_sampled, marker='o', linestyle='-', color='tab:orange', label='DMRG + Lanczos (Sampled)')
     
     # Annotate points with their bond dimension
     for i, chi in enumerate(chi_maxs):
-        ax.annotate(f"$\\chi={chi}$", (T_dmrg[i], E_dmrg[i]), 
+        ax.annotate(f"$\\chi={chi}$", (T_dmrg[i], y_dmrg[i]), 
                      textcoords="offset points", xytext=(6, 4), ha='left', fontsize=9)
-        ax.annotate(f"$\\chi={chi}$", (T_total[i], El_alpha[i]), 
+        ax.annotate(f"$\\chi={chi}$", (T_total[i], y_sampled[i]), 
                      textcoords="offset points", xytext=(6, -10), ha='left', fontsize=9)
 
     ax.set_xlabel("Total Wall Time (Hours)", fontsize=11)
-    ax.set_ylabel("Variational Energy (Ha)", fontsize=11)
-    ax.set_title("Variational Energy vs. Computational Cost", fontsize=12)
+    ax.set_ylabel(r"Energy diff $\Delta E$ (Ha)", fontsize=11)
+    ax.set_title("Variational Energy Difference vs. Computational Cost", fontsize=12)
     
     ax.grid(True, linestyle='--', alpha=0.6)
     ax.legend(frameon=True, loc='upper right')
