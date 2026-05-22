@@ -1,6 +1,6 @@
 from lanczos_method import lanczos_step_sampled_v2, lanczos_step_exact
 from j1j2_model import j1j2_model
-from _plot import plot_dE_vs_chi, plot_rel_dE_vs_chi, plot_E_dmrg_vs_time
+from _plot import plot_E_vs_time, plot_dE_vs_chi, plot_rel_dE_vs_chi
 from utils import get_exact_psi_and_E, EXACT_ENERGIES_J1J2_cylinder, EXACT_ENERGIES_J1J2_torus
 import hydra
 import logging
@@ -44,7 +44,9 @@ def main(cfg: DictConfig):
 
     ## Lists to store raw DMRG energies and Lanczos-optimized energies for each chi value
     E_dmrg = []
+    T_dmrg_hours = []
     El_sampled_dict = {Ns: [] for Ns in cfg.lanczos.Nss}
+    T_total_hours_dict = {Ns: [] for Ns in cfg.lanczos.Nss}
     data_to_save = {Ns: {} for Ns in cfg.lanczos.Nss}
     sub_filepath = f'J1J2_{lattice}/c={cfg.lanczos.c}'
     dmrg_geom_filepath = f'J1J2_{lattice}'
@@ -65,10 +67,11 @@ def main(cfg: DictConfig):
         logger.info('Before Lanczos step, MPS bond dimension : %s', psi.chi)
 
         E_dmrg.append(E)
+        T_dmrg_hours.append(wall_time_dmrg / 3600.0)
 
         for Ns, seed in zip(cfg.lanczos.Nss, cfg.lanczos.seeds):
             # Lanczos step using the estimated moments from perfect sampling (single independent round)
-            E_alpha_sampled, alpha_star_sampled, _, _, _, wall_time, max_memory_mb = lanczos_step_sampled_v2(
+            E_alpha_sampled, alpha_star_sampled, _, _, _, wall_time_lanczos, max_memory_mb_lanczos = lanczos_step_sampled_v2(
                 psi=psi,
                 H=H_mpo,
                 N_s=Ns,
@@ -82,6 +85,7 @@ def main(cfg: DictConfig):
             logger.info("Ns: %d | Lanczos (sampled): E = %.10f Ha, alpha = %.4f", Ns, E_alpha_sampled, alpha_star_sampled)
 
             El_sampled_dict[Ns].append(E_alpha_sampled)
+            T_total_hours_dict[Ns].append((wall_time_dmrg + wall_time_lanczos) / 3600.0)
 
             rel_dE = (E_alpha_sampled - E_exact + 1e-12) / (E - E_exact + 1e-12)
             dE = E_alpha_sampled - E_exact
@@ -90,9 +94,12 @@ def main(cfg: DictConfig):
                 "E_dmrg": float(E),
                 "El_sampled": float(E_alpha_sampled),
                 "rel_dE": float(rel_dE),
-                "dE": float(dE)
+                "dE": float(dE),
+                "dmrg_time_s": float(wall_time_dmrg),
+                "lanczos_time_s": float(wall_time_lanczos),
+                "dmrg_memory_mb": float(max_memory_mb_dmrg),
+                "lanczos_memory_mb": float(max_memory_mb_lanczos)
             }
-
         logger.info("DMRG energy: %.10f Ha", E)
 
     # ---------------------------------------------------------
@@ -109,20 +116,24 @@ def main(cfg: DictConfig):
     os.makedirs(figs_dir, exist_ok=True)
     
     for Ns in cfg.lanczos.Nss:
-        # Construct a common suffix for all outputs based on the configuration params
         run_suffix = f"chi{cfg.dmrg.chi_maxs[0]}-{cfg.dmrg.chi_maxs[-1]}_Ns{Ns}_c{cfg.lanczos.c}_canon"
 
-        # Save plotted data to a JSON file
         with open(f'{lanczos_dir}/data_{run_suffix}.json', 'w') as f:
             json.dump(data_to_save[Ns], f, indent=4)
-        logger.info("Saved Lanczos data to %s/data_%s.json", lanczos_dir, run_suffix)
-
-        # Create plots
+            
         plot_kwargs = {"chi": cfg.dmrg.chi_maxs, "E_exact": E_exact, "E_dmrg": E_dmrg, "El_alpha": El_sampled_dict[Ns], "El_exact": None, "dim": [Lx, Ly]}
         
         plot_rel_dE_vs_chi(**plot_kwargs, figs_filename=f'{figs_dir}/rel_dE_vs_{run_suffix}.png')
         plot_dE_vs_chi(**plot_kwargs, figs_filename=f'{figs_dir}/dE_vs_{run_suffix}.png')
-        logger.info("Saved figures to %s for Ns=%d", figs_dir, Ns)
-
+        
+        # Add the newly created scaling comparison plot
+        plot_E_vs_time(
+            chi_maxs=cfg.dmrg.chi_maxs,
+            E_dmrg=E_dmrg,
+            El_alpha=El_sampled_dict[Ns],
+            T_dmrg=T_dmrg_hours,
+            T_total=T_total_hours_dict[Ns],
+            figs_filename=f'{figs_dir}/E_vs_time_{run_suffix}.png'
+        )
 if __name__ == "__main__":
     main()
