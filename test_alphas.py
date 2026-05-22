@@ -56,7 +56,7 @@ def test(cfg: DictConfig):
     for chi_max in cfg.dmrg.chi_maxs:
         logger.info('\n====================================== chi_max = %d ======================================\n', chi_max)  
         dmrg_filepath = f'log_dmrg/{dmrg_geom_filepath}'
-        E, psi = model.run(chi_max=chi_max, dmrg_filepath=dmrg_filepath) 
+        E, psi, _, _ = model.run(chi_max=chi_max, dmrg_filepath=dmrg_filepath) 
 
         E_alpha_sampled = E 
         psi.norm = 1.0
@@ -66,13 +66,18 @@ def test(cfg: DictConfig):
 
         alphas = np.linspace(-0.5, 0.5, 500)
 
+        # Compute exact scan over alphas
+        cache_dir = 'log_test_alphas'
+        cache_filepath = f'{cache_dir}/{alphas[0]}_{alphas[-1]}_{len(alphas)}_chi{chi_max}.json'
+        E_alphas = test_alphas(alphas, psi, H_mpo, cache_filepath=cache_filepath)
+        
+        figs_dir = f'figs/test_alphas/c={cfg.lanczos.c}/chi={chi_max}'
+        os.makedirs(figs_dir, exist_ok=True)
+
         E_alphas_vs_Ns = []
-        last_alpha_star = None
-        last_E_alpha_star = None
-        last_h1, last_h2, last_h3 = None, None, None
 
         for Ns, seed in zip(cfg.lanczos.Nss, cfg.lanczos.seeds):
-            E_alpha_star, alpha_star, h1, h2, h3 = lanczos_step_sampled_v2(
+            E_alpha_star, alpha_star, h1, h2, h3, _, _ = lanczos_step_sampled_v2(
                 psi = psi,
                 H = H_mpo,
                 N_s = Ns,
@@ -83,18 +88,21 @@ def test(cfg: DictConfig):
                 sampling_filepath = f'log_sampling/test/{sub_filepath}/chi={chi_max}/'
             )
             E_alphas_vs_Ns.append(E_alpha_star)
-            last_alpha_star = alpha_star
-            last_E_alpha_star = E_alpha_star
-            last_h1, last_h2, last_h3 = h1, h2, h3
             logger.info("Ns: %d | Optimized alpha: %.4f | E_alpha: %.10f Ha", Ns, alpha_star, E_alpha_star)
 
-        # Compute exact scan over alphas
-        cache_dir = 'log_test_alphas'
-        cache_filepath = f'{cache_dir}/{alphas[0]}_{alphas[-1]}_{len(alphas)}_chi{chi_max}.json'
-        E_alphas = test_alphas(alphas, psi, H_mpo, cache_filepath=cache_filepath)
-        
-        figs_dir = f'figs/test_alphas/c={cfg.lanczos.c}/chi={chi_max}'
-        os.makedirs(figs_dir, exist_ok=True)
+            # Compute the theoretical curve from the moments of the current Ns step
+            E_alphas_theo = get_theoretical_energy_surface(alphas, h1, h2, h3)
+
+            plot_Ealpha_vs_alpha(
+                alphas=alphas,
+                E_alphas=E_alphas,
+                E_alphas_theo=E_alphas_theo,
+                alpha_star=alpha_star,
+                E_alpha_star=E_alpha_star,
+                E_dmrg=E,
+                E_exact=E_exact,
+                figs_filename=f'{figs_dir}/chi{chi_max}_Ns{Ns}_c{cfg.lanczos.c}_trunc.png'
+            )
 
         plot_Ealpha_vs_Ns(
             Nss=cfg.lanczos.Nss,
@@ -102,20 +110,6 @@ def test(cfg: DictConfig):
             E_dmrg=E,
             E_exact=E_exact,
             figs_filename=f'{figs_dir}/chi{chi_max}_c{cfg.lanczos.c}_Ealpha_vs_Ns.png'
-        )
-
-        # Compute the theoretical curve from the moments of the last Ns step
-        E_alphas_theo = get_theoretical_energy_surface(alphas, last_h1, last_h2, last_h3)
-
-        plot_Ealpha_vs_alpha(
-            alphas=alphas,
-            E_alphas=E_alphas,
-            E_alphas_theo=E_alphas_theo,
-            alpha_star=last_alpha_star,
-            E_alpha_star=last_E_alpha_star,
-            E_dmrg=E,
-            E_exact=E_exact,
-            figs_filename=f'{figs_dir}/chi{chi_max}_Ns{cfg.lanczos.Nss[-1]}_c{cfg.lanczos.c}_trunc.png'
         )
 
 if __name__ == "__main__":
