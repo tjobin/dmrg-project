@@ -1,0 +1,11 @@
+.venv
+figs
+__pycache__
+log_dmrg
+log_lanczos
+log_sampling
+out
+outputs
+.python-version
+run.sh
+.vscode
