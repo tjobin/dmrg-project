@@ -14,6 +14,7 @@ def lanczos_step_sampled_v2(
         chi_max: int,
         E_ref: float,
         c: float,
+        mad_threshold: float = 10.0,
         seed: int | None = None,
         sampling_filepath: str | None = None
 ) -> tuple[float, float, float, float, float, float, float] :
@@ -27,6 +28,7 @@ def lanczos_step_sampled_v2(
         chi_max = chi_max,
         E_ref = E_ref,
         c = c,
+        mad_threshold = mad_threshold,
         seed = seed,
         sampling_filepath = sampling_filepath
     )

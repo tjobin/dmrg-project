@@ -9,6 +9,7 @@ import json
 import os
 import random
 import numpy as np
+import joblib
 
 # OmegaConf.register_new_resolver("calc_seeds", lambda nss: [ns * 10 + 42 for ns in nss])
 
@@ -25,6 +26,7 @@ def main(cfg: DictConfig):
     np.random.seed(global_seed)
 
     logger.info("Configuration:\n%s", OmegaConf.to_yaml(cfg))
+    logger.info("Number of cores available for joblib: %d", joblib.cpu_count())
 
     Lx = cfg.system.Lx
     Ly = cfg.system.Ly
@@ -48,7 +50,7 @@ def main(cfg: DictConfig):
     El_sampled_dict = {Ns: [] for Ns in cfg.lanczos.Nss}
     T_total_hours_dict = {Ns: [] for Ns in cfg.lanczos.Nss}
     data_to_save = {Ns: {} for Ns in cfg.lanczos.Nss}
-    sub_filepath = f'J1J2_{lattice}/c={cfg.lanczos.c}'
+    sub_filepath = f'J1J2_{lattice}/c={cfg.lanczos.c}/mad_threshold={cfg.lanczos.mad_threshold}'
     dmrg_geom_filepath = f'J1J2_{lattice}'
     dmrg_energies_summary = {}
 
@@ -78,6 +80,7 @@ def main(cfg: DictConfig):
                 chi_max=chi_max,
                 E_ref=E,
                 c=cfg.lanczos.c,
+                mad_threshold=cfg.lanczos.mad_threshold,
                 seed=seed,
                 sampling_filepath=f'log_sampling/{sub_filepath}/'
             )
@@ -98,7 +101,8 @@ def main(cfg: DictConfig):
                 "dmrg_time_s": float(wall_time_dmrg),
                 "lanczos_time_s": float(wall_time_lanczos),
                 "dmrg_memory_mb": float(max_memory_mb_dmrg),
-                "lanczos_memory_mb": float(max_memory_mb_lanczos)
+                "lanczos_memory_mb": float(max_memory_mb_lanczos),
+                "alpha_star_sampled": float(alpha_star_sampled)
             }
         logger.info("DMRG energy: %.10f Ha", E)
 
@@ -116,7 +120,7 @@ def main(cfg: DictConfig):
     os.makedirs(figs_dir, exist_ok=True)
     
     for Ns in cfg.lanczos.Nss:
-        run_suffix = f"chi{cfg.dmrg.chi_maxs[0]}-{cfg.dmrg.chi_maxs[-1]}_Ns{Ns}_c{cfg.lanczos.c}_canon"
+        run_suffix = f"chi{cfg.dmrg.chi_maxs[0]}-{cfg.dmrg.chi_maxs[-1]}_Ns{Ns}_c{cfg.lanczos.c}"
 
         with open(f'{lanczos_dir}/data_{run_suffix}.json', 'w') as f:
             json.dump(data_to_save[Ns], f, indent=4)
@@ -129,6 +133,7 @@ def main(cfg: DictConfig):
         # Add the newly created scaling comparison plot
         plot_E_vs_time(
             chi_maxs=cfg.dmrg.chi_maxs,
+            E_exact=E_exact,
             E_dmrg=E_dmrg,
             El_alpha=El_sampled_dict[Ns],
             T_dmrg=T_dmrg_hours,
